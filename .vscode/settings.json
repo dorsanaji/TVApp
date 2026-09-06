@@ -1,0 +1,15 @@
+{
+  "dart.flutterSdkPath": "/opt/homebrew/share/flutter",
+  "dart.lineLength": 100,
+  "editor.formatOnSave": true,
+  "editor.rulers": [100],
+  "[dart]": {
+    "editor.defaultFormatter": "Dart-Code.dart-code",
+    "editor.codeActionsOnSave": { "source.fixAll": "explicit" }
+  },
+  "files.exclude": {
+    "**/*.g.dart": false,
+    "**/.dart_tool": true
+  },
+  "dart.runPubGetOnPubspecChanges": "always"
+}

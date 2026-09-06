@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CineTrack (debug)",
+      "request": "launch",
+      "type": "dart",
+      "program": "app/lib/main.dart",
+      "cwd": "app",
+      "toolArgs": ["--dart-define-from-file=dart_defines.json"]
+    },
+    {
+      "name": "CineTrack (profile — for the <3s check, NFR-01)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "profile",
+      "program": "app/lib/main.dart",
+      "cwd": "app",
+      "toolArgs": ["--dart-define-from-file=dart_defines.json"]
+    },
+    {
+      "name": "CineTrack (release)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "release",
+      "program": "app/lib/main.dart",
+      "cwd": "app",
+      "toolArgs": ["--dart-define-from-file=dart_defines.json"]
+    }
+  ]
+}

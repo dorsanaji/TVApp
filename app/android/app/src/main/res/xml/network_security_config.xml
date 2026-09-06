@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NFR-14 — "network communications must be conducted over HTTPS".
+
+  Enforced by the platform rather than by convention: with cleartext denied,
+  any plain-http request fails at the socket, so the requirement cannot be
+  broken by an accidental `http://` in a future change.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy to dart_defines.json and fill in. Passed with --dart-define-from-file, so values are compile-time constants and never shipped as a readable asset. Get a token at https://www.themoviedb.org/settings/api - use the API Read Access Token (v4 auth), the long value starting eyJ.",
+  "TMDB_READ_TOKEN": "",
+  "TMDB_BASE_URL": "https://api.themoviedb.org/3",
+  "TMDB_IMAGE_BASE_URL": "https://image.tmdb.org/t/p",
+  "EMAILJS_SERVICE_ID": "",
+  "EMAILJS_TEMPLATE_ID": "",
+  "EMAILJS_PUBLIC_KEY": "",
+  "EMAILJS_PRIVATE_KEY": "",
+  "SUPABASE_URL": "",
+  "SUPABASE_ANON_KEY": ""
+}
