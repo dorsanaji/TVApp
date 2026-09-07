@@ -52,7 +52,6 @@ class _DiaryEntryModalState extends ConsumerState<DiaryEntryModal> {
   int _stars = 4;
   DateTime _watchedDate = DateTime.now();
   bool _isRewatch = false;
-  bool _hasSpoiler = false;
   bool _isSubmitting = false;
 
   @override
@@ -116,28 +115,32 @@ class _DiaryEntryModalState extends ConsumerState<DiaryEntryModal> {
         await reviewRepo.rate(item.id, item.type, _stars);
       }
 
-      // 2. Submit optional review
+      // 2. The diary text stays in the diary.
+      //
+      // This used to call `submitReview`, which is the very same call the
+      // public comment box makes — so anything written here was published
+      // under the title for everyone and sent to friends' feeds. A diary is
+      // a private log; if the user wants to say something publicly there is
+      // a comment box for that.
       final reviewText = _reviewController.text.trim();
-      if (reviewText.isNotEmpty) {
-        await reviewRepo.submitReview(
-          id: item.id,
-          type: item.type,
-          body: reviewText,
-          hasSpoiler: _hasSpoiler,
-        );
-      }
 
       // 3. Mark as watched
       await trackingActions.setStatus(item, WatchStatus.watched);
 
-      // 4. Log Social Activity
+      // 4. Record the diary entry itself
       final activity = SocialActivity(
-        activityId: 'act_${DateTime.now().microsecondsSinceEpoch}',
+        // A timestamped id would log the same title twice on every edit;
+        // keying it to the user and title makes re-saving an update.
+        activityId: SocialActivity.buildId(
+          prefix: 'diary',
+          userId: currentUser.id,
+          mediaType: item.type,
+          mediaId: item.id,
+        ),
         userId: currentUser.id,
-        actionType: reviewText.isNotEmpty
-            ? SocialActionType.reviewed
-            : SocialActionType.watched,
+        actionType: SocialActionType.diary,
         movieId: item.id,
+        mediaType: item.type,
         timestamp: _watchedDate,
         movieTitle: item.title,
         moviePoster: item.posterPath,
@@ -154,6 +157,8 @@ class _DiaryEntryModalState extends ConsumerState<DiaryEntryModal> {
       ref.invalidate(ratingSummaryProvider(key));
       ref.invalidate(reviewsProvider(key));
       ref.invalidate(watchStatusProvider(key));
+      ref.read(reviewRevisionProvider.notifier).state++;
+      ref.read(socialActivityRevisionProvider.notifier).state++;
 
       if (mounted) {
         Navigator.pop(context);
@@ -178,7 +183,7 @@ class _DiaryEntryModalState extends ConsumerState<DiaryEntryModal> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bottomInset = AppSpacing.sheetInset(context, extra: 0);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -300,9 +305,18 @@ class _DiaryEntryModalState extends ConsumerState<DiaryEntryModal> {
 
             // ── 4. Written Review (Optional) ──────────────────────────
             Text(
-              'یادداشت یا نقد (اختیاری)',
+              'یادداشت شخصی (اختیاری)',
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'این یادداشت فقط در دفترچه‌ی پروفایل شما دیده می‌شود؛ زیر اثر '
+              'منتشر نمی‌شود و در فعالیت دوستان هم نمایش داده نمی‌شود. برای '
+              'نظر عمومی از بخش «نقد و نظر» زیر همان اثر استفاده کنید.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: AppSpacing.xs),
@@ -310,19 +324,9 @@ class _DiaryEntryModalState extends ConsumerState<DiaryEntryModal> {
               controller: _reviewController,
               maxLines: 4,
               decoration: const InputDecoration(
-                hintText: 'نظرتان درباره این فیلم چیست؟...',
+                hintText: 'برای خودتان بنویسید…',
                 border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-
-            // ── 5. Spoiler Toggle ─────────────────────────────────────
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              value: _hasSpoiler,
-              onChanged: (val) => setState(() => _hasSpoiler = val ?? false),
-              title: const Text('این یادداشت حاوی اسپویل داستان است'),
             ),
             const SizedBox(height: AppSpacing.lg),
 

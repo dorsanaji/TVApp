@@ -7,13 +7,15 @@ abstract interface class AuthRepository {
 
   AppUser? get currentUserOrNull;
 
-  /// FR-01. Duplicate email or username must fail with a [ValidationFailure]
-  /// naming the offending field, not a generic error.
+  /// FR-01. A duplicate username must fail with a [ValidationFailure] naming
+  /// the field, not a generic error.
+  ///
+  /// The username is the whole identity here: there is no email address, so
+  /// nothing about an account leaves the device unless the user publishes it.
   Future<Result<AppUser>> register({
     required String firstName,
     required String lastName,
     required String username,
-    required String email,
     required String password,
     String? bio,
     String? avatarPath,
@@ -21,22 +23,12 @@ abstract interface class AuthRepository {
 
   /// FR-02. The session must remain valid for 30 days.
   Future<Result<AppUser>> login({
-    required String email,
+    required String username,
     required String password,
   });
 
   /// FR-02 — secure logout: clears the token from secure storage.
   Future<Result<void>> logout();
-
-  /// FR-03 — dispatches a recovery code to the address.
-  Future<Result<void>> requestPasswordReset(String email);
-
-  /// FR-03 — completes the reset. The code is single-use and time-limited.
-  Future<Result<void>> resetPassword({
-    required String email,
-    required String code,
-    required String newPassword,
-  });
 
   /// FR-04.
   ///
@@ -77,7 +69,6 @@ class AppUser {
     required this.firstName,
     required this.lastName,
     required this.username,
-    required this.email,
     this.bio,
     this.avatarPath,
     this.role = UserRole.user,
@@ -91,7 +82,6 @@ class AppUser {
   final String firstName;
   final String lastName;
   final String username;
-  final String email;
   final String? bio;
   final String? avatarPath;
 

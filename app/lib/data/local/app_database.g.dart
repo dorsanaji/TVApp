@@ -2901,16 +2901,6 @@ class $UsersTable extends Users with TableInfo<$UsersTable, UserRow> {
     requiredDuringInsert: true,
     defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
   );
-  static const VerificationMeta _emailMeta = const VerificationMeta('email');
-  @override
-  late final GeneratedColumn<String> email = GeneratedColumn<String>(
-    'email',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
-  );
   static const VerificationMeta _passwordHashMeta = const VerificationMeta(
     'passwordHash',
   );
@@ -2981,7 +2971,6 @@ class $UsersTable extends Users with TableInfo<$UsersTable, UserRow> {
     firstName,
     lastName,
     username,
-    email,
     passwordHash,
     passwordSalt,
     bio,
@@ -3029,14 +3018,6 @@ class $UsersTable extends Users with TableInfo<$UsersTable, UserRow> {
       );
     } else if (isInserting) {
       context.missing(_usernameMeta);
-    }
-    if (data.containsKey('email')) {
-      context.handle(
-        _emailMeta,
-        email.isAcceptableOrUnknown(data['email']!, _emailMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_emailMeta);
     }
     if (data.containsKey('password_hash')) {
       context.handle(
@@ -3109,10 +3090,6 @@ class $UsersTable extends Users with TableInfo<$UsersTable, UserRow> {
         DriftSqlType.string,
         data['${effectivePrefix}username'],
       )!,
-      email: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}email'],
-      )!,
       passwordHash: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}password_hash'],
@@ -3151,7 +3128,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
   final String firstName;
   final String lastName;
   final String username;
-  final String email;
 
   /// PBKDF2-HMAC-SHA256 output, hex encoded.
   final String passwordHash;
@@ -3168,7 +3144,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     required this.firstName,
     required this.lastName,
     required this.username,
-    required this.email,
     required this.passwordHash,
     required this.passwordSalt,
     this.bio,
@@ -3183,7 +3158,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     map['first_name'] = Variable<String>(firstName);
     map['last_name'] = Variable<String>(lastName);
     map['username'] = Variable<String>(username);
-    map['email'] = Variable<String>(email);
     map['password_hash'] = Variable<String>(passwordHash);
     map['password_salt'] = Variable<String>(passwordSalt);
     if (!nullToAbsent || bio != null) {
@@ -3203,7 +3177,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
       firstName: Value(firstName),
       lastName: Value(lastName),
       username: Value(username),
-      email: Value(email),
       passwordHash: Value(passwordHash),
       passwordSalt: Value(passwordSalt),
       bio: bio == null && nullToAbsent ? const Value.absent() : Value(bio),
@@ -3225,7 +3198,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
       firstName: serializer.fromJson<String>(json['firstName']),
       lastName: serializer.fromJson<String>(json['lastName']),
       username: serializer.fromJson<String>(json['username']),
-      email: serializer.fromJson<String>(json['email']),
       passwordHash: serializer.fromJson<String>(json['passwordHash']),
       passwordSalt: serializer.fromJson<String>(json['passwordSalt']),
       bio: serializer.fromJson<String?>(json['bio']),
@@ -3242,7 +3214,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
       'firstName': serializer.toJson<String>(firstName),
       'lastName': serializer.toJson<String>(lastName),
       'username': serializer.toJson<String>(username),
-      'email': serializer.toJson<String>(email),
       'passwordHash': serializer.toJson<String>(passwordHash),
       'passwordSalt': serializer.toJson<String>(passwordSalt),
       'bio': serializer.toJson<String?>(bio),
@@ -3257,7 +3228,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     String? firstName,
     String? lastName,
     String? username,
-    String? email,
     String? passwordHash,
     String? passwordSalt,
     Value<String?> bio = const Value.absent(),
@@ -3269,7 +3239,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     firstName: firstName ?? this.firstName,
     lastName: lastName ?? this.lastName,
     username: username ?? this.username,
-    email: email ?? this.email,
     passwordHash: passwordHash ?? this.passwordHash,
     passwordSalt: passwordSalt ?? this.passwordSalt,
     bio: bio.present ? bio.value : this.bio,
@@ -3283,7 +3252,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
       firstName: data.firstName.present ? data.firstName.value : this.firstName,
       lastName: data.lastName.present ? data.lastName.value : this.lastName,
       username: data.username.present ? data.username.value : this.username,
-      email: data.email.present ? data.email.value : this.email,
       passwordHash: data.passwordHash.present
           ? data.passwordHash.value
           : this.passwordHash,
@@ -3306,7 +3274,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
           ..write('firstName: $firstName, ')
           ..write('lastName: $lastName, ')
           ..write('username: $username, ')
-          ..write('email: $email, ')
           ..write('passwordHash: $passwordHash, ')
           ..write('passwordSalt: $passwordSalt, ')
           ..write('bio: $bio, ')
@@ -3323,7 +3290,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     firstName,
     lastName,
     username,
-    email,
     passwordHash,
     passwordSalt,
     bio,
@@ -3339,7 +3305,6 @@ class UserRow extends DataClass implements Insertable<UserRow> {
           other.firstName == this.firstName &&
           other.lastName == this.lastName &&
           other.username == this.username &&
-          other.email == this.email &&
           other.passwordHash == this.passwordHash &&
           other.passwordSalt == this.passwordSalt &&
           other.bio == this.bio &&
@@ -3353,7 +3318,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
   final Value<String> firstName;
   final Value<String> lastName;
   final Value<String> username;
-  final Value<String> email;
   final Value<String> passwordHash;
   final Value<String> passwordSalt;
   final Value<String?> bio;
@@ -3366,7 +3330,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     this.firstName = const Value.absent(),
     this.lastName = const Value.absent(),
     this.username = const Value.absent(),
-    this.email = const Value.absent(),
     this.passwordHash = const Value.absent(),
     this.passwordSalt = const Value.absent(),
     this.bio = const Value.absent(),
@@ -3380,7 +3343,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     required String firstName,
     required String lastName,
     required String username,
-    required String email,
     required String passwordHash,
     required String passwordSalt,
     this.bio = const Value.absent(),
@@ -3392,7 +3354,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
        firstName = Value(firstName),
        lastName = Value(lastName),
        username = Value(username),
-       email = Value(email),
        passwordHash = Value(passwordHash),
        passwordSalt = Value(passwordSalt);
   static Insertable<UserRow> custom({
@@ -3400,7 +3361,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     Expression<String>? firstName,
     Expression<String>? lastName,
     Expression<String>? username,
-    Expression<String>? email,
     Expression<String>? passwordHash,
     Expression<String>? passwordSalt,
     Expression<String>? bio,
@@ -3414,7 +3374,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
       if (firstName != null) 'first_name': firstName,
       if (lastName != null) 'last_name': lastName,
       if (username != null) 'username': username,
-      if (email != null) 'email': email,
       if (passwordHash != null) 'password_hash': passwordHash,
       if (passwordSalt != null) 'password_salt': passwordSalt,
       if (bio != null) 'bio': bio,
@@ -3430,7 +3389,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     Value<String>? firstName,
     Value<String>? lastName,
     Value<String>? username,
-    Value<String>? email,
     Value<String>? passwordHash,
     Value<String>? passwordSalt,
     Value<String?>? bio,
@@ -3444,7 +3402,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
       firstName: firstName ?? this.firstName,
       lastName: lastName ?? this.lastName,
       username: username ?? this.username,
-      email: email ?? this.email,
       passwordHash: passwordHash ?? this.passwordHash,
       passwordSalt: passwordSalt ?? this.passwordSalt,
       bio: bio ?? this.bio,
@@ -3469,9 +3426,6 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     }
     if (username.present) {
       map['username'] = Variable<String>(username.value);
-    }
-    if (email.present) {
-      map['email'] = Variable<String>(email.value);
     }
     if (passwordHash.present) {
       map['password_hash'] = Variable<String>(passwordHash.value);
@@ -3504,325 +3458,12 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
           ..write('firstName: $firstName, ')
           ..write('lastName: $lastName, ')
           ..write('username: $username, ')
-          ..write('email: $email, ')
           ..write('passwordHash: $passwordHash, ')
           ..write('passwordSalt: $passwordSalt, ')
           ..write('bio: $bio, ')
           ..write('avatarPath: $avatarPath, ')
           ..write('role: $role, ')
           ..write('createdAt: $createdAt, ')
-          ..write('rowid: $rowid')
-          ..write(')'))
-        .toString();
-  }
-}
-
-class $PasswordResetsTable extends PasswordResets
-    with TableInfo<$PasswordResetsTable, PasswordReset> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  $PasswordResetsTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _emailMeta = const VerificationMeta('email');
-  @override
-  late final GeneratedColumn<String> email = GeneratedColumn<String>(
-    'email',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-  );
-  static const VerificationMeta _codeHashMeta = const VerificationMeta(
-    'codeHash',
-  );
-  @override
-  late final GeneratedColumn<String> codeHash = GeneratedColumn<String>(
-    'code_hash',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-  );
-  static const VerificationMeta _expiresAtMeta = const VerificationMeta(
-    'expiresAt',
-  );
-  @override
-  late final GeneratedColumn<DateTime> expiresAt = GeneratedColumn<DateTime>(
-    'expires_at',
-    aliasedName,
-    false,
-    type: DriftSqlType.dateTime,
-    requiredDuringInsert: true,
-  );
-  static const VerificationMeta _usedMeta = const VerificationMeta('used');
-  @override
-  late final GeneratedColumn<bool> used = GeneratedColumn<bool>(
-    'used',
-    aliasedName,
-    false,
-    type: DriftSqlType.bool,
-    requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("used" IN (0, 1))',
-    ),
-    defaultValue: const Constant(false),
-  );
-  @override
-  List<GeneratedColumn> get $columns => [email, codeHash, expiresAt, used];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'password_resets';
-  @override
-  VerificationContext validateIntegrity(
-    Insertable<PasswordReset> instance, {
-    bool isInserting = false,
-  }) {
-    final context = VerificationContext();
-    final data = instance.toColumns(true);
-    if (data.containsKey('email')) {
-      context.handle(
-        _emailMeta,
-        email.isAcceptableOrUnknown(data['email']!, _emailMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_emailMeta);
-    }
-    if (data.containsKey('code_hash')) {
-      context.handle(
-        _codeHashMeta,
-        codeHash.isAcceptableOrUnknown(data['code_hash']!, _codeHashMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_codeHashMeta);
-    }
-    if (data.containsKey('expires_at')) {
-      context.handle(
-        _expiresAtMeta,
-        expiresAt.isAcceptableOrUnknown(data['expires_at']!, _expiresAtMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_expiresAtMeta);
-    }
-    if (data.containsKey('used')) {
-      context.handle(
-        _usedMeta,
-        used.isAcceptableOrUnknown(data['used']!, _usedMeta),
-      );
-    }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {email};
-  @override
-  PasswordReset map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return PasswordReset(
-      email: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}email'],
-      )!,
-      codeHash: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}code_hash'],
-      )!,
-      expiresAt: attachedDatabase.typeMapping.read(
-        DriftSqlType.dateTime,
-        data['${effectivePrefix}expires_at'],
-      )!,
-      used: attachedDatabase.typeMapping.read(
-        DriftSqlType.bool,
-        data['${effectivePrefix}used'],
-      )!,
-    );
-  }
-
-  @override
-  $PasswordResetsTable createAlias(String alias) {
-    return $PasswordResetsTable(attachedDatabase, alias);
-  }
-}
-
-class PasswordReset extends DataClass implements Insertable<PasswordReset> {
-  final String email;
-  final String codeHash;
-  final DateTime expiresAt;
-  final bool used;
-  const PasswordReset({
-    required this.email,
-    required this.codeHash,
-    required this.expiresAt,
-    required this.used,
-  });
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['email'] = Variable<String>(email);
-    map['code_hash'] = Variable<String>(codeHash);
-    map['expires_at'] = Variable<DateTime>(expiresAt);
-    map['used'] = Variable<bool>(used);
-    return map;
-  }
-
-  PasswordResetsCompanion toCompanion(bool nullToAbsent) {
-    return PasswordResetsCompanion(
-      email: Value(email),
-      codeHash: Value(codeHash),
-      expiresAt: Value(expiresAt),
-      used: Value(used),
-    );
-  }
-
-  factory PasswordReset.fromJson(
-    Map<String, dynamic> json, {
-    ValueSerializer? serializer,
-  }) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return PasswordReset(
-      email: serializer.fromJson<String>(json['email']),
-      codeHash: serializer.fromJson<String>(json['codeHash']),
-      expiresAt: serializer.fromJson<DateTime>(json['expiresAt']),
-      used: serializer.fromJson<bool>(json['used']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'email': serializer.toJson<String>(email),
-      'codeHash': serializer.toJson<String>(codeHash),
-      'expiresAt': serializer.toJson<DateTime>(expiresAt),
-      'used': serializer.toJson<bool>(used),
-    };
-  }
-
-  PasswordReset copyWith({
-    String? email,
-    String? codeHash,
-    DateTime? expiresAt,
-    bool? used,
-  }) => PasswordReset(
-    email: email ?? this.email,
-    codeHash: codeHash ?? this.codeHash,
-    expiresAt: expiresAt ?? this.expiresAt,
-    used: used ?? this.used,
-  );
-  PasswordReset copyWithCompanion(PasswordResetsCompanion data) {
-    return PasswordReset(
-      email: data.email.present ? data.email.value : this.email,
-      codeHash: data.codeHash.present ? data.codeHash.value : this.codeHash,
-      expiresAt: data.expiresAt.present ? data.expiresAt.value : this.expiresAt,
-      used: data.used.present ? data.used.value : this.used,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('PasswordReset(')
-          ..write('email: $email, ')
-          ..write('codeHash: $codeHash, ')
-          ..write('expiresAt: $expiresAt, ')
-          ..write('used: $used')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(email, codeHash, expiresAt, used);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is PasswordReset &&
-          other.email == this.email &&
-          other.codeHash == this.codeHash &&
-          other.expiresAt == this.expiresAt &&
-          other.used == this.used);
-}
-
-class PasswordResetsCompanion extends UpdateCompanion<PasswordReset> {
-  final Value<String> email;
-  final Value<String> codeHash;
-  final Value<DateTime> expiresAt;
-  final Value<bool> used;
-  final Value<int> rowid;
-  const PasswordResetsCompanion({
-    this.email = const Value.absent(),
-    this.codeHash = const Value.absent(),
-    this.expiresAt = const Value.absent(),
-    this.used = const Value.absent(),
-    this.rowid = const Value.absent(),
-  });
-  PasswordResetsCompanion.insert({
-    required String email,
-    required String codeHash,
-    required DateTime expiresAt,
-    this.used = const Value.absent(),
-    this.rowid = const Value.absent(),
-  }) : email = Value(email),
-       codeHash = Value(codeHash),
-       expiresAt = Value(expiresAt);
-  static Insertable<PasswordReset> custom({
-    Expression<String>? email,
-    Expression<String>? codeHash,
-    Expression<DateTime>? expiresAt,
-    Expression<bool>? used,
-    Expression<int>? rowid,
-  }) {
-    return RawValuesInsertable({
-      if (email != null) 'email': email,
-      if (codeHash != null) 'code_hash': codeHash,
-      if (expiresAt != null) 'expires_at': expiresAt,
-      if (used != null) 'used': used,
-      if (rowid != null) 'rowid': rowid,
-    });
-  }
-
-  PasswordResetsCompanion copyWith({
-    Value<String>? email,
-    Value<String>? codeHash,
-    Value<DateTime>? expiresAt,
-    Value<bool>? used,
-    Value<int>? rowid,
-  }) {
-    return PasswordResetsCompanion(
-      email: email ?? this.email,
-      codeHash: codeHash ?? this.codeHash,
-      expiresAt: expiresAt ?? this.expiresAt,
-      used: used ?? this.used,
-      rowid: rowid ?? this.rowid,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (email.present) {
-      map['email'] = Variable<String>(email.value);
-    }
-    if (codeHash.present) {
-      map['code_hash'] = Variable<String>(codeHash.value);
-    }
-    if (expiresAt.present) {
-      map['expires_at'] = Variable<DateTime>(expiresAt.value);
-    }
-    if (used.present) {
-      map['used'] = Variable<bool>(used.value);
-    }
-    if (rowid.present) {
-      map['rowid'] = Variable<int>(rowid.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('PasswordResetsCompanion(')
-          ..write('email: $email, ')
-          ..write('codeHash: $codeHash, ')
-          ..write('expiresAt: $expiresAt, ')
-          ..write('used: $used, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4716,7 +4357,6 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $PersonalListsTable personalLists = $PersonalListsTable(this);
   late final $ListItemsTable listItems = $ListItemsTable(this);
   late final $UsersTable users = $UsersTable(this);
-  late final $PasswordResetsTable passwordResets = $PasswordResetsTable(this);
   late final $RatingsTable ratings = $RatingsTable(this);
   late final $ReviewsTable reviews = $ReviewsTable(this);
   @override
@@ -4732,7 +4372,6 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     personalLists,
     listItems,
     users,
-    passwordResets,
     ratings,
     reviews,
   ];
@@ -6493,7 +6132,6 @@ typedef $$UsersTableCreateCompanionBuilder =
       required String firstName,
       required String lastName,
       required String username,
-      required String email,
       required String passwordHash,
       required String passwordSalt,
       Value<String?> bio,
@@ -6508,7 +6146,6 @@ typedef $$UsersTableUpdateCompanionBuilder =
       Value<String> firstName,
       Value<String> lastName,
       Value<String> username,
-      Value<String> email,
       Value<String> passwordHash,
       Value<String> passwordSalt,
       Value<String?> bio,
@@ -6543,11 +6180,6 @@ class $$UsersTableFilterComposer extends Composer<_$AppDatabase, $UsersTable> {
 
   ColumnFilters<String> get username => $composableBuilder(
     column: $table.username,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get email => $composableBuilder(
-    column: $table.email,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6611,11 +6243,6 @@ class $$UsersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get email => $composableBuilder(
-    column: $table.email,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<String> get passwordHash => $composableBuilder(
     column: $table.passwordHash,
     builder: (column) => ColumnOrderings(column),
@@ -6667,9 +6294,6 @@ class $$UsersTableAnnotationComposer
 
   GeneratedColumn<String> get username =>
       $composableBuilder(column: $table.username, builder: (column) => column);
-
-  GeneratedColumn<String> get email =>
-      $composableBuilder(column: $table.email, builder: (column) => column);
 
   GeneratedColumn<String> get passwordHash => $composableBuilder(
     column: $table.passwordHash,
@@ -6728,7 +6352,6 @@ class $$UsersTableTableManager
                 Value<String> firstName = const Value.absent(),
                 Value<String> lastName = const Value.absent(),
                 Value<String> username = const Value.absent(),
-                Value<String> email = const Value.absent(),
                 Value<String> passwordHash = const Value.absent(),
                 Value<String> passwordSalt = const Value.absent(),
                 Value<String?> bio = const Value.absent(),
@@ -6741,7 +6364,6 @@ class $$UsersTableTableManager
                 firstName: firstName,
                 lastName: lastName,
                 username: username,
-                email: email,
                 passwordHash: passwordHash,
                 passwordSalt: passwordSalt,
                 bio: bio,
@@ -6756,7 +6378,6 @@ class $$UsersTableTableManager
                 required String firstName,
                 required String lastName,
                 required String username,
-                required String email,
                 required String passwordHash,
                 required String passwordSalt,
                 Value<String?> bio = const Value.absent(),
@@ -6769,7 +6390,6 @@ class $$UsersTableTableManager
                 firstName: firstName,
                 lastName: lastName,
                 username: username,
-                email: email,
                 passwordHash: passwordHash,
                 passwordSalt: passwordSalt,
                 bio: bio,
@@ -6798,189 +6418,6 @@ typedef $$UsersTableProcessedTableManager =
       $$UsersTableUpdateCompanionBuilder,
       (UserRow, BaseReferences<_$AppDatabase, $UsersTable, UserRow>),
       UserRow,
-      PrefetchHooks Function()
-    >;
-typedef $$PasswordResetsTableCreateCompanionBuilder =
-    PasswordResetsCompanion Function({
-      required String email,
-      required String codeHash,
-      required DateTime expiresAt,
-      Value<bool> used,
-      Value<int> rowid,
-    });
-typedef $$PasswordResetsTableUpdateCompanionBuilder =
-    PasswordResetsCompanion Function({
-      Value<String> email,
-      Value<String> codeHash,
-      Value<DateTime> expiresAt,
-      Value<bool> used,
-      Value<int> rowid,
-    });
-
-class $$PasswordResetsTableFilterComposer
-    extends Composer<_$AppDatabase, $PasswordResetsTable> {
-  $$PasswordResetsTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<String> get email => $composableBuilder(
-    column: $table.email,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get codeHash => $composableBuilder(
-    column: $table.codeHash,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<DateTime> get expiresAt => $composableBuilder(
-    column: $table.expiresAt,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<bool> get used => $composableBuilder(
-    column: $table.used,
-    builder: (column) => ColumnFilters(column),
-  );
-}
-
-class $$PasswordResetsTableOrderingComposer
-    extends Composer<_$AppDatabase, $PasswordResetsTable> {
-  $$PasswordResetsTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<String> get email => $composableBuilder(
-    column: $table.email,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<String> get codeHash => $composableBuilder(
-    column: $table.codeHash,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<DateTime> get expiresAt => $composableBuilder(
-    column: $table.expiresAt,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<bool> get used => $composableBuilder(
-    column: $table.used,
-    builder: (column) => ColumnOrderings(column),
-  );
-}
-
-class $$PasswordResetsTableAnnotationComposer
-    extends Composer<_$AppDatabase, $PasswordResetsTable> {
-  $$PasswordResetsTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<String> get email =>
-      $composableBuilder(column: $table.email, builder: (column) => column);
-
-  GeneratedColumn<String> get codeHash =>
-      $composableBuilder(column: $table.codeHash, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get expiresAt =>
-      $composableBuilder(column: $table.expiresAt, builder: (column) => column);
-
-  GeneratedColumn<bool> get used =>
-      $composableBuilder(column: $table.used, builder: (column) => column);
-}
-
-class $$PasswordResetsTableTableManager
-    extends
-        RootTableManager<
-          _$AppDatabase,
-          $PasswordResetsTable,
-          PasswordReset,
-          $$PasswordResetsTableFilterComposer,
-          $$PasswordResetsTableOrderingComposer,
-          $$PasswordResetsTableAnnotationComposer,
-          $$PasswordResetsTableCreateCompanionBuilder,
-          $$PasswordResetsTableUpdateCompanionBuilder,
-          (
-            PasswordReset,
-            BaseReferences<_$AppDatabase, $PasswordResetsTable, PasswordReset>,
-          ),
-          PasswordReset,
-          PrefetchHooks Function()
-        > {
-  $$PasswordResetsTableTableManager(
-    _$AppDatabase db,
-    $PasswordResetsTable table,
-  ) : super(
-        TableManagerState(
-          db: db,
-          table: table,
-          createFilteringComposer: () =>
-              $$PasswordResetsTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$PasswordResetsTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$PasswordResetsTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback:
-              ({
-                Value<String> email = const Value.absent(),
-                Value<String> codeHash = const Value.absent(),
-                Value<DateTime> expiresAt = const Value.absent(),
-                Value<bool> used = const Value.absent(),
-                Value<int> rowid = const Value.absent(),
-              }) => PasswordResetsCompanion(
-                email: email,
-                codeHash: codeHash,
-                expiresAt: expiresAt,
-                used: used,
-                rowid: rowid,
-              ),
-          createCompanionCallback:
-              ({
-                required String email,
-                required String codeHash,
-                required DateTime expiresAt,
-                Value<bool> used = const Value.absent(),
-                Value<int> rowid = const Value.absent(),
-              }) => PasswordResetsCompanion.insert(
-                email: email,
-                codeHash: codeHash,
-                expiresAt: expiresAt,
-                used: used,
-                rowid: rowid,
-              ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: null,
-        ),
-      );
-}
-
-typedef $$PasswordResetsTableProcessedTableManager =
-    ProcessedTableManager<
-      _$AppDatabase,
-      $PasswordResetsTable,
-      PasswordReset,
-      $$PasswordResetsTableFilterComposer,
-      $$PasswordResetsTableOrderingComposer,
-      $$PasswordResetsTableAnnotationComposer,
-      $$PasswordResetsTableCreateCompanionBuilder,
-      $$PasswordResetsTableUpdateCompanionBuilder,
-      (
-        PasswordReset,
-        BaseReferences<_$AppDatabase, $PasswordResetsTable, PasswordReset>,
-      ),
-      PasswordReset,
       PrefetchHooks Function()
     >;
 typedef $$RatingsTableCreateCompanionBuilder =
@@ -7452,8 +6889,6 @@ class $AppDatabaseManager {
       $$ListItemsTableTableManager(_db, _db.listItems);
   $$UsersTableTableManager get users =>
       $$UsersTableTableManager(_db, _db.users);
-  $$PasswordResetsTableTableManager get passwordResets =>
-      $$PasswordResetsTableTableManager(_db, _db.passwordResets);
   $$RatingsTableTableManager get ratings =>
       $$RatingsTableTableManager(_db, _db.ratings);
   $$ReviewsTableTableManager get reviews =>

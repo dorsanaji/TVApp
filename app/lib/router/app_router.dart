@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 
 import '../core/l10n/app_strings.dart';
 import '../domain/entities/media_summary.dart';
-import '../features/auth/presentation/forgot_password_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/profile_screen.dart';
 import '../features/auth/presentation/register_screen.dart';
@@ -13,9 +12,10 @@ import '../features/episodes/presentation/season_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/lists/presentation/lists_screen.dart';
 import '../features/search/presentation/search_screen.dart';
-import '../features/social/presentation/activity_feed_screen.dart';
 import '../features/social/presentation/collaborative_list_screen.dart';
+import '../features/social/presentation/profile_lists_screen.dart';
 import '../features/social/presentation/public_profile_screen.dart';
+import '../features/social/presentation/social_screen.dart';
 import '../features/stats/presentation/statistics_screen.dart';
 import '../features/tracking/presentation/watchlist_screen.dart';
 
@@ -33,15 +33,14 @@ abstract final class AppRoutes {
 
   static const home = '/';
   static const search = '/search';
+  static const social = '/social';
   static const watchlist = '/watchlist';
   static const lists = '/lists';
   static const profile = '/profile';
 
   static const login = '/login';
   static const register = '/register';
-  static const forgotPassword = '/forgot-password';
   static const statistics = '/statistics';
-  static const activityFeed = '/activity-feed';
 
   static String publicProfile(String userId) => '/user/$userId';
   static String collaborativeList(String listId) =>
@@ -87,8 +86,8 @@ GoRouter createRouter() {
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: AppRoutes.search,
-                builder: (context, state) => const SearchScreen(),
+                path: AppRoutes.social,
+                builder: (context, state) => const SocialScreen(),
               ),
             ],
           ),
@@ -131,24 +130,49 @@ GoRouter createRouter() {
         builder: (context, state) => const RegisterScreen(),
       ),
       GoRoute(
-        path: AppRoutes.forgotPassword,
-        parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const ForgotPasswordScreen(),
-      ),
-      GoRoute(
         path: AppRoutes.statistics,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const StatisticsScreen(),
       ),
       GoRoute(
-        path: AppRoutes.activityFeed,
+        path: AppRoutes.search,
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const ActivityFeedScreen(),
+        builder: (context, state) => const SearchScreen(),
       ),
       GoRoute(
         path: '/user/:userId',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => PublicProfileScreen(
+          userId: state.pathParameters['userId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/user/:userId/followers',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => FollowListScreen(
+          userId: state.pathParameters['userId'] ?? '',
+          kind: FollowListKind.followers,
+        ),
+      ),
+      GoRoute(
+        path: '/user/:userId/following',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => FollowListScreen(
+          userId: state.pathParameters['userId'] ?? '',
+          kind: FollowListKind.following,
+        ),
+      ),
+      GoRoute(
+        path: '/user/:userId/diary',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => DiaryScreen(
+          userId: state.pathParameters['userId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/user/:userId/watched',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => WatchedTitlesScreen(
           userId: state.pathParameters['userId'] ?? '',
         ),
       ),
@@ -213,9 +237,9 @@ class _ScaffoldWithNavBar extends StatelessWidget {
             label: AppStrings.navHome,
           ),
           NavigationDestination(
-            icon: Icon(Icons.search_outlined),
-            selectedIcon: Icon(Icons.search_rounded),
-            label: AppStrings.navSearch,
+            icon: Icon(Icons.people_alt_outlined),
+            selectedIcon: Icon(Icons.people_alt_rounded),
+            label: AppStrings.navSocial,
           ),
           NavigationDestination(
             icon: Icon(Icons.bookmark_outline),

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
@@ -17,7 +16,6 @@ import '../../core/security/password_hasher.dart';
 import '../../domain/entities/enums.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../local/app_database.dart';
-import '../services/email_sender.dart';
 
 /// [AuthRepository] backed by the local database — FR-01 to FR-04.
 ///
@@ -29,18 +27,15 @@ class LocalAuthRepository implements AuthRepository {
   LocalAuthRepository({
     required AppDatabase db,
     required FlutterSecureStorage storage,
-    required EmailSender emailSender,
     LocalAuthentication? localAuth,
     SupabaseClient? supabaseClient,
-  }) : _email = emailSender,
-       _localAuth = localAuth ?? LocalAuthentication(),
+  }) :        _localAuth = localAuth ?? LocalAuthentication(),
        _db = db,
        _storage = storage,
        _supabase = supabaseClient;
 
   final AppDatabase _db;
   final FlutterSecureStorage _storage;
-  final EmailSender _email;
   final LocalAuthentication _localAuth;
   final SupabaseClient? _supabase;
 
@@ -140,47 +135,33 @@ class LocalAuthRepository implements AuthRepository {
     required String firstName,
     required String lastName,
     required String username,
-    required String email,
     required String password,
     String? bio,
     String? avatarPath,
   }) {
     return _guard(() async {
-      final normalisedEmail = email.trim().toLowerCase();
       final normalisedUsername = username.trim();
 
       _validateRegistration(
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         username: normalisedUsername,
-        email: normalisedEmail,
         password: password,
       );
 
-      // FR-01 — "the system must prevent registration of a duplicate email or
-      // username". Checked explicitly so the error names the offending field,
-      // rather than surfacing a raw unique-constraint violation.
+      // FR-01 — "the system must prevent registration of a duplicate
+      // username". Checked explicitly so the error names the field, rather
+      // than surfacing a raw unique-constraint violation.
       final existing =
-          await (_db.select(_db.users)..where(
-                (t) =>
-                    t.email.equals(normalisedEmail) |
-                    t.username.equals(normalisedUsername),
-              ))
+          await (_db.select(_db.users)
+                ..where((t) => t.username.equals(normalisedUsername)))
               .get();
 
-      for (final row in existing) {
-        if (row.email == normalisedEmail) {
-          throw const ValidationFailure(
-            'این ایمیل قبلاً ثبت شده است',
-            field: 'email',
-          );
-        }
-        if (row.username == normalisedUsername) {
-          throw const ValidationFailure(
-            'این نام کاربری قبلاً ثبت شده است',
-            field: 'username',
-          );
-        }
+      if (existing.isNotEmpty) {
+        throw const ValidationFailure(
+          'این شناسه قبلاً ثبت شده است',
+          field: 'username',
+        );
       }
 
       final salt = PasswordHasher.generateSalt();
@@ -194,7 +175,6 @@ class LocalAuthRepository implements AuthRepository {
               firstName: firstName.trim(),
               lastName: lastName.trim(),
               username: normalisedUsername,
-              email: normalisedEmail,
               passwordHash: PasswordHasher.hash(password, salt),
               passwordSalt: salt,
               bio: Value(bio?.trim()),
@@ -235,7 +215,6 @@ class LocalAuthRepository implements AuthRepository {
     required String firstName,
     required String lastName,
     required String username,
-    required String email,
     required String password,
   }) {
     if (firstName.isEmpty || lastName.isEmpty) {
@@ -246,12 +225,9 @@ class LocalAuthRepository implements AuthRepository {
     }
     if (username.length < 3) {
       throw const ValidationFailure(
-        'نام کاربری باید حداقل ۳ نویسه باشد',
+        'شناسه باید حداقل ۳ نویسه باشد',
         field: 'username',
       );
-    }
-    if (!isValidEmail(email)) {
-      throw const ValidationFailure('ایمیل معتبر نیست', field: 'email');
     }
     if (password.length < 8) {
       throw const ValidationFailure(
@@ -261,27 +237,22 @@ class LocalAuthRepository implements AuthRepository {
     }
   }
 
-  /// Deliberately permissive. A stricter pattern rejects addresses that are
-  /// perfectly valid; the only authoritative test is delivery.
-  static bool isValidEmail(String value) =>
-      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value);
-
   // ── FR-02 · Login and logout ──────────────────────────────────────────
 
   @override
   Future<Result<AppUser>> login({
-    required String email,
+    required String username,
     required String password,
   }) {
     return _guard(() async {
       final row =
           await (_db.select(_db.users)
-                ..where((t) => t.email.equals(email.trim().toLowerCase())))
+                ..where((t) => t.username.equals(username.trim())))
               .getSingleOrNull();
 
-      // The same message whether the address is unknown or the password is
-      // wrong, so the form cannot be used to enumerate registered addresses.
-      const rejected = ValidationFailure('ایمیل یا رمز عبور نادرست است');
+      // The same message whether the username is unknown or the password is
+      // wrong, so the form cannot be used to enumerate registered accounts.
+      const rejected = ValidationFailure('شناسه یا رمز عبور نادرست است');
 
       if (row == null) throw rejected;
       if (!PasswordHasher.verify(
@@ -319,84 +290,6 @@ class LocalAuthRepository implements AuthRepository {
     await _storage.delete(key: _tokenKey);
     await _storage.delete(key: _expiryKey);
     _userController.add(null);
-  }
-
-  // ── FR-03 · Password recovery ─────────────────────────────────────────
-
-  @override
-  Future<Result<void>> requestPasswordReset(String email) {
-    return _guard(() async {
-      final normalised = email.trim().toLowerCase();
-      final row = await (_db.select(
-        _db.users,
-      )..where((t) => t.email.equals(normalised))).getSingleOrNull();
-
-      // Succeeds either way: reporting "no such account" would turn this into
-      // an address-enumeration oracle.
-      if (row == null) return;
-
-      final code = (Random.secure().nextInt(900000) + 100000).toString();
-
-      await _db
-          .into(_db.passwordResets)
-          .insertOnConflictUpdate(
-            PasswordResetsCompanion.insert(
-              email: normalised,
-              // The code is hashed like a password: a leaked database must not
-              // hand over a working reset token.
-              codeHash: PasswordHasher.hash(code, normalised),
-              expiresAt: DateTime.now().add(const Duration(minutes: 15)),
-              used: const Value(false),
-            ),
-          );
-
-      await _email.sendPasswordResetCode(email: normalised, code: code);
-    });
-  }
-
-  @override
-  Future<Result<void>> resetPassword({
-    required String email,
-    required String code,
-    required String newPassword,
-  }) {
-    return _guard(() async {
-      final normalised = email.trim().toLowerCase();
-
-      if (newPassword.length < 8) {
-        throw const ValidationFailure(
-          'رمز عبور باید حداقل ۸ نویسه باشد',
-          field: 'password',
-        );
-      }
-
-      final reset = await (_db.select(
-        _db.passwordResets,
-      )..where((t) => t.email.equals(normalised))).getSingleOrNull();
-
-      const invalid = ValidationFailure('کد بازیابی نامعتبر یا منقضی است');
-
-      if (reset == null || reset.used) throw invalid;
-      if (reset.expiresAt.isBefore(DateTime.now())) throw invalid;
-      if (PasswordHasher.hash(code.trim(), normalised) != reset.codeHash) {
-        throw invalid;
-      }
-
-      final salt = PasswordHasher.generateSalt();
-      await (_db.update(
-        _db.users,
-      )..where((t) => t.email.equals(normalised))).write(
-        UsersCompanion(
-          passwordHash: Value(PasswordHasher.hash(newPassword, salt)),
-          passwordSalt: Value(salt),
-        ),
-      );
-
-      // Single-use: consumed even on success, so a code cannot be replayed.
-      await (_db.update(_db.passwordResets)
-            ..where((t) => t.email.equals(normalised)))
-          .write(const PasswordResetsCompanion(used: Value(true)));
-    });
   }
 
   // ── FR-04 · Profile ───────────────────────────────────────────────────
@@ -573,7 +466,6 @@ class LocalAuthRepository implements AuthRepository {
       firstName: row.firstName,
       lastName: row.lastName,
       username: row.username,
-      email: row.email,
       bio: row.bio,
       avatarPath: row.avatarPath,
       role: row.role == 'admin' ? UserRole.admin : UserRole.user,

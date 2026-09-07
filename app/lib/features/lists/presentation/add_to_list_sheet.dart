@@ -22,6 +22,7 @@ Future<void> showAddToListSheet(BuildContext context, MediaSummary item) {
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (context) => _AddToListSheet(item: item),
   );
 }
@@ -278,10 +279,10 @@ class _CollaborativeListsTabState extends ConsumerState<_CollaborativeListsTab> 
       );
     }
 
-    final listsAsync = ref.watch(allAvailableCollaborativeListsProvider);
-    final myLists =
-        ref.watch(myCollaborativeListsProvider).valueOrNull ?? const [];
-    final myEditableListIds = myLists.map((l) => l.listId).toSet();
+    // Only the lists the user can actually write to: the ones they own plus
+    // the ones they were accepted onto as a collaborator. Showing every public
+    // list here and locking most of them made the sheet mostly unusable rows.
+    final listsAsync = ref.watch(myCollaborativeListsProvider);
     final containingAsync = ref.watch(
       collaborativeListsContainingProvider((id: widget.item.id, type: widget.item.type)),
     );
@@ -352,18 +353,12 @@ class _CollaborativeListsTabState extends ConsumerState<_CollaborativeListsTab> 
                       containing.contains(list.listId);
                   final isOwner =
                       currentUserId != null && list.isOwner(currentUserId);
-                  final isCollaborator = myEditableListIds.contains(list.listId);
-                  final canEdit = isOwner || isCollaborator;
                   final isProcessing = _inFlight.contains(list.listId);
 
                   return CheckboxListTile(
                     value: isIn,
                     title: Row(
                       children: [
-                        if (!canEdit) ...[
-                          const Icon(Icons.lock_outline, size: 16, color: Colors.orange),
-                          const SizedBox(width: AppSpacing.xs),
-                        ],
                         Expanded(
                           child: Text(
                             list.title,
@@ -395,23 +390,11 @@ class _CollaborativeListsTabState extends ConsumerState<_CollaborativeListsTab> 
                       ],
                     ),
                     subtitle: Text(
-                      canEdit
-                          ? '${list.itemCount.toPersian} اثر${isOwner ? " • ایجاد شده توسط شما" : " • همکار تأییدشده"}'
-                          : '${list.itemCount.toPersian} اثر • نیاز به تأیید مالک برای ویرایش',
+                      '${list.itemCount.toPersian} اثر'
+                      '${isOwner ? " • ایجاد شده توسط شما" : " • همکار تأییدشده"}',
                     ),
                     secondary: const Icon(Icons.group_outlined),
-                    onChanged: !canEdit
-                        ? (_) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'تنها مالک و همکاران تأییدشده می‌توانند این فهرست را ویرایش کنند. لطفاً در صفحه فهرست درخواست دسترسی ارسال کنید.',
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          }
-                        : (selected) async {
+                    onChanged: (selected) async {
                             if (isProcessing) return; // Ignore repeat clicks while request is in flight
                             final willAdd = selected ?? false;
 

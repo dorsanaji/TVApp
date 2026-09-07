@@ -157,7 +157,6 @@ class Users extends Table {
   TextColumn get firstName => text()();
   TextColumn get lastName => text()();
   TextColumn get username => text().unique()();
-  TextColumn get email => text().unique()();
 
   /// PBKDF2-HMAC-SHA256 output, hex encoded.
   TextColumn get passwordHash => text()();
@@ -173,17 +172,6 @@ class Users extends Table {
 
   @override
   Set<Column<Object>> get primaryKey => {id};
-}
-
-/// FR-03 — single-use, time-limited password-reset codes.
-class PasswordResets extends Table {
-  TextColumn get email => text()();
-  TextColumn get codeHash => text()();
-  DateTimeColumn get expiresAt => dateTime()();
-  BoolColumn get used => boolean().withDefault(const Constant(false))();
-
-  @override
-  Set<Column<Object>> get primaryKey => {email};
 }
 
 /// FR-13 — one rating per user per title, 1–5 stars.
@@ -226,7 +214,6 @@ class Reviews extends Table {
     PersonalLists,
     ListItems,
     Users,
-    PasswordResets,
     Ratings,
     Reviews,
   ],
@@ -236,10 +223,42 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'cinetrack'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+    onUpgrade: (m, from, to) async {
+      if (from < 3) {
+        // Accounts are username-and-password now: there is no address to
+        // recover to, so the column and the reset codes both go. Dropping
+        // them rather than leaving them unused keeps the schema honest about
+        // what the app actually stores about a person.
+        await m.alterTable(TableMigration(users));
+        await customStatement('DROP TABLE IF EXISTS password_resets');
+      }
+      if (from < 2) {
+        // `status` is stored by name, so rows written before `paused`,
+        // `dropped` and `favourite` were retired would fail to parse and take
+        // the whole watchlist down with them. Rewrite them instead.
+        //
+        // A series someone stopped part-way is still one they were watching;
+        // a film they never finished goes back to "plan to watch", since a
+        // film has no in-progress state. `favourite` was never really a
+        // status — the heart of FR-16 lives in its own table — so those rows
+        // carry no watch information worth keeping.
+        await customStatement(
+          "DELETE FROM watch_statuses WHERE status = 'favourite'",
+        );
+        await customStatement(
+          "UPDATE watch_statuses SET status = 'watching' "
+          "WHERE status IN ('paused', 'dropped') AND media_type = 'series'",
+        );
+        await customStatement(
+          "UPDATE watch_statuses SET status = 'planToWatch' "
+          "WHERE status IN ('paused', 'dropped')",
+        );
+      }
+    },
     beforeOpen: (details) async {
       // Needed for the ListItems → PersonalLists cascade; SQLite leaves
       // foreign keys off by default.

@@ -4,12 +4,13 @@ import 'package:cinetrack/domain/entities/social/custom_list.dart';
 import 'package:cinetrack/domain/entities/social/custom_list_item.dart';
 import 'package:cinetrack/domain/entities/social/list_collaborator.dart';
 import 'package:cinetrack/domain/repositories/auth_repository.dart';
-import 'package:cinetrack/features/auth/presentation/auth_providers.dart';
 import 'package:cinetrack/features/social/presentation/collaborative_list_screen.dart';
 import 'package:cinetrack/features/social/presentation/social_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/fake_auth.dart';
 
 void main() {
   testWidgets('Test Owner with pending request and null fields', (tester) async {
@@ -57,7 +58,6 @@ void main() {
 
     const ownerUser = AppUser(
       id: 'owner_user',
-      email: 'owner@example.com',
       username: 'owner',
       firstName: 'Owner',
       lastName: 'User',
@@ -66,7 +66,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          currentUserProvider.overrideWith((ref) => Stream.value(ownerUser)),
+          ...authOverrides(ownerUser),
           collaborativeListStreamProvider('test_list').overrideWith((ref) => Stream.value(list)),
           collaborativeListDetailsProvider('test_list').overrideWith((ref) => Future.value(list)),
           collaborativeListItemsStreamProvider('test_list').overrideWith((ref) => Stream.value([item])),
@@ -110,7 +110,6 @@ void main() {
 
     const nonOwnerUser = AppUser(
       id: 'requester_user',
-      email: 'requester@example.com',
       username: 'requester',
       firstName: 'Req',
       lastName: 'User',
@@ -119,7 +118,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          currentUserProvider.overrideWith((ref) => Stream.value(nonOwnerUser)),
+          ...authOverrides(nonOwnerUser),
           collaborativeListStreamProvider('test_list').overrideWith((ref) => Stream.value(list)),
           collaborativeListDetailsProvider('test_list').overrideWith((ref) => Future.value(list)),
           collaborativeListItemsStreamProvider('test_list').overrideWith((ref) => Stream.value([])),

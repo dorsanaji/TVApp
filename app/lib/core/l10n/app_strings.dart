@@ -7,12 +7,13 @@ abstract final class AppStrings {
   const AppStrings._();
 
   // ── App ────────────────────────────────────────────────────────────────
-  static const appName = 'MyTV';
+  static const appName = 'هم‌سکانس';
 
   // ── Navigation (NFR-08: main sections easily accessible) ───────────────
   // Screen titles — the full names, as the brief uses them.
   static const navHome = 'خانه';
   static const navSearch = 'جست‌وجو';
+  static const navSocial = 'اجتماعی';
   static const navWatchlist = 'فهرست تماشا';
   static const navLists = 'فهرست‌های من';
   static const navProfile = 'پروفایل';
@@ -38,8 +39,8 @@ abstract final class AppStrings {
   static const statusPlanToWatch = 'قصد دارم تماشا کنم';
   static const statusWatching = 'در حال تماشا';
   static const statusWatched = 'مشاهده شده';
-  static const statusPaused = 'متوقف شده';
-  static const statusDropped = 'رهاشده';
+
+  /// FR-16's heart, not an FR-09 status — see [WatchStatus].
   static const statusFavourite = 'موردعلاقه';
 
   // ── Watchlist sections (FR-12) ─────────────────────────────────────────

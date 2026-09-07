@@ -5,11 +5,12 @@ import '../../../core/error/result.dart';
 import '../../../domain/repositories/review_repository.dart';
 import '../../tracking/presentation/tracking_providers.dart';
 
-/// Ticks after every rating or review change, so the distribution, the review
-/// list, and the aggregate on the detail screen all refresh together.
-final reviewRevisionProvider = StreamProvider<void>((ref) {
-  return ref.watch(localReviewRepositoryProvider).changes;
-});
+/// Bumped after every rating or review change, so the distribution, the
+/// review list, and the aggregate on the detail screen all refresh together.
+///
+/// A counter rather than a stream from the repository: ratings live in
+/// Supabase now, and a REST client has nothing to push from.
+final reviewRevisionProvider = StateProvider<int>((ref) => 0);
 
 /// FR-13 — this user's own rating, or `null`.
 final myRatingProvider = FutureProvider.family<int?, MediaKey>((
@@ -52,7 +53,10 @@ final reviewsProvider = FutureProvider.family<List<Review>, MediaKey>((
 });
 
 /// FR-19 statistic 6 — the mean of the ratings this user has submitted.
+///
+/// Read off the statistics rather than queried separately: both are the same
+/// fold over the same rows.
 final myAverageRatingProvider = FutureProvider<double?>((ref) async {
-  ref.watch(reviewRevisionProvider);
-  return ref.watch(localReviewRepositoryProvider).averageRatingOfCurrentUser();
+  final stats = await ref.watch(statisticsProvider.future);
+  return stats.averageRating;
 });

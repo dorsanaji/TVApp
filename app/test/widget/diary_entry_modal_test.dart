@@ -6,7 +6,6 @@ import 'package:cinetrack/domain/entities/media_summary.dart';
 import 'package:cinetrack/domain/repositories/auth_repository.dart';
 import 'package:cinetrack/domain/repositories/review_repository.dart';
 import 'package:cinetrack/domain/repositories/tracking_repository.dart';
-import 'package:cinetrack/features/auth/presentation/auth_providers.dart';
 import 'package:cinetrack/features/reviews/presentation/widgets/diary_entry_modal.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +13,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../support/fake_auth.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 class MockReviewRepository extends Mock implements ReviewRepository {}
@@ -42,14 +43,13 @@ void main() {
     firstName: 'علی',
     lastName: 'اکبری',
     username: 'ali',
-    email: 'ali@example.com',
   );
 
   Widget createSubject({required Widget child}) {
     return ProviderScope(
       overrides: [
+          ...authOverrides(testUser),
         databaseProvider.overrideWithValue(db),
-        currentUserProvider.overrideWith((ref) => Stream.value(testUser)),
         socialRepositoryProvider
             .overrideWithValue(SupabaseSocialRepository(client: null)),
       ],
@@ -91,13 +91,17 @@ void main() {
       expect(find.text('تماشای مجدد (Rewatch)'), findsOneWidget);
       expect(find.byType(SwitchListTile), findsOneWidget);
 
-      // 4. Written review textfield
-      expect(find.text('یادداشت یا نقد (اختیاری)'), findsOneWidget);
+      // 4. Private note field — not a public review, and the copy has to say
+      // so before anyone types into it.
+      expect(find.text('یادداشت شخصی (اختیاری)'), findsOneWidget);
       expect(find.byType(TextField), findsOneWidget);
+      expect(
+        find.textContaining('فقط در دفترچه‌ی پروفایل شما دیده می‌شود'),
+        findsOneWidget,
+      );
 
-      // 5. Spoiler toggle
-      expect(find.text('این یادداشت حاوی اسپویل داستان است'), findsOneWidget);
-      expect(find.byType(CheckboxListTile), findsOneWidget);
+      // 5. No spoiler toggle: nothing here is published.
+      expect(find.byType(CheckboxListTile), findsNothing);
 
       // 6. Submit button
       expect(find.text('ثبت در دفترچه تماشا'), findsOneWidget);

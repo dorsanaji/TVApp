@@ -38,9 +38,13 @@ class CineTrackApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
 
-      theme: AppTheme.light,
+      // The app is designed dark: posters and artwork sit on a dark ground
+      // throughout, and the light palette was never given the same attention.
+      // Pinned rather than following the device so it looks the same on
+      // every phone.
+      theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
+      themeMode: ThemeMode.dark,
 
       routerConfig: createRouter(),
 

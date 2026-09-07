@@ -107,6 +107,18 @@ abstract final class TmdbLocalization {
   /// Persian genre name for [id], falling back to [fallback] when unmapped.
   static String genre(int id, String fallback) => _genres[id] ?? fallback;
 
+  /// Every genre a user can pick as a favourite, in a stable order.
+  ///
+  /// Deduplicated: a few ids share a Persian name across the film and series
+  /// vocabularies, and offering the same word twice in a picker is confusing.
+  static List<String> get selectableGenres {
+    final seen = <String>{};
+    return [
+      for (final name in _genres.values)
+        if (seen.add(name)) name,
+    ];
+  }
+
   /// Persian country name for an ISO 3166-1 alpha-2 [code], falling back to
   /// [fallback] when unmapped.
   static String country(String? code, String fallback) {

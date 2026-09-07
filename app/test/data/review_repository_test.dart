@@ -2,7 +2,6 @@ import 'package:cinetrack/core/error/failure.dart';
 import 'package:cinetrack/data/local/app_database.dart';
 import 'package:cinetrack/data/repositories/local_auth_repository.dart';
 import 'package:cinetrack/data/repositories/local_review_repository.dart';
-import 'package:cinetrack/data/services/email_sender.dart';
 import 'package:cinetrack/domain/entities/enums.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -22,7 +21,6 @@ void main() {
     auth = LocalAuthRepository(
       db: db,
       storage: const FlutterSecureStorage(),
-      emailSender: DebugEmailSender(),
     );
     repository = LocalReviewRepository(db: db, auth: auth);
 
@@ -30,7 +28,6 @@ void main() {
       firstName: 'آریا',
       lastName: 'تمکین',
       username: 'arya',
-      email: 'arya@example.com',
       password: 'correct-horse',
     );
   });
@@ -205,7 +202,6 @@ void main() {
         firstName: 'کسی',
         lastName: 'دیگر',
         username: 'someone',
-        email: 'someone@example.com',
         password: 'another-password',
       );
 

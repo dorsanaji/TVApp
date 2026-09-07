@@ -5,14 +5,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/local/app_database.dart';
 import '../../data/remote/tmdb/tmdb_api.dart';
-import '../../data/repositories/local_auth_repository.dart';
-import '../../data/repositories/local_list_repository.dart';
-import '../../data/repositories/local_review_repository.dart';
-import '../../data/repositories/local_tracking_repository.dart';
+import '../../data/repositories/supabase_auth_repository.dart';
+import '../../data/repositories/supabase_list_repository.dart';
+import '../../data/repositories/supabase_review_repository.dart';
 import '../../data/repositories/supabase_social_repository.dart';
+import '../../data/repositories/supabase_tracking_repository.dart';
 import '../../data/repositories/tmdb_catalog_repository.dart';
-import '../../data/services/email_sender.dart';
-import '../../data/services/emailjs_sender.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../../domain/repositories/catalog_repository.dart';
 import '../../domain/repositories/list_repository.dart';
@@ -86,6 +84,14 @@ final catalogRepositoryProvider = Provider<CatalogRepository>((ref) {
   return TmdbCatalogRepository(ref.watch(tmdbApiProvider));
 });
 
+/// Bumped whenever a social activity is written or removed.
+///
+/// The activity providers read it, so favouriting a title or marking one
+/// watched refreshes the profile and the diary immediately. It lives here,
+/// in the DI root, because both the tracking and social layers bump it and
+/// neither should have to import the other.
+final socialActivityRevisionProvider = StateProvider<int>((ref) => 0);
+
 /// NM-07 — the local store for the user's personal information.
 final databaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
@@ -94,36 +100,31 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 });
 
 final trackingRepositoryProvider = Provider<TrackingRepository>((ref) {
-  final repository = LocalTrackingRepository(
-    ref.watch(databaseProvider),
+  final repository = SupabaseTrackingRepository(
+    ref.watch(requiredSupabaseClientProvider),
     ref.watch(authRepositoryProvider),
   );
   ref.onDispose(repository.dispose);
   return repository;
 });
 
-/// FR-03's delivery transport.
-///
-/// EmailJS when credentials are present, otherwise the development sender that
-/// surfaces the code on screen. The fallback keeps the flow demonstrable on a
-/// clone with no credentials.
-final debugEmailSenderProvider = Provider<DebugEmailSender>(
-  (ref) => DebugEmailSender(),
-);
-
-final emailSenderProvider = Provider<EmailSender>((ref) {
-  return EmailSenderWithFallback(
-    primary: EmailJsSender(),
-    fallback: ref.watch(debugEmailSenderProvider),
-  );
+/// Accounts live in Supabase Auth, so the app cannot run without a client.
+/// Failing loudly here beats a screen of empty states with no explanation.
+final requiredSupabaseClientProvider = Provider<SupabaseClient>((ref) {
+  final client = ref.watch(supabaseClientProvider);
+  if (client == null) {
+    throw StateError(
+      'Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in '
+      'dart_defines.json — accounts and user data both live there now.',
+    );
+  }
+  return client;
 });
 
-final localAuthRepositoryProvider = Provider<LocalAuthRepository>((ref) {
-  final repository = LocalAuthRepository(
-    db: ref.watch(databaseProvider),
+final localAuthRepositoryProvider = Provider<SupabaseAuthRepository>((ref) {
+  final repository = SupabaseAuthRepository(
+    client: ref.watch(requiredSupabaseClientProvider),
     storage: ref.watch(secureStorageProvider),
-    emailSender: ref.watch(emailSenderProvider),
-    supabaseClient: ref.watch(supabaseClientProvider),
   );
   ref.onDispose(repository.dispose);
   return repository;
@@ -133,22 +134,16 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return ref.watch(localAuthRepositoryProvider);
 });
 
-final localReviewRepositoryProvider = Provider<LocalReviewRepository>((ref) {
-  final repository = LocalReviewRepository(
-    db: ref.watch(databaseProvider),
-    auth: ref.watch(authRepositoryProvider),
-  );
-  ref.onDispose(repository.dispose);
-  return repository;
-});
-
 final reviewRepositoryProvider = Provider<ReviewRepository>((ref) {
-  return ref.watch(localReviewRepositoryProvider);
+  return SupabaseReviewRepository(
+    ref.watch(requiredSupabaseClientProvider),
+    ref.watch(authRepositoryProvider),
+  );
 });
 
 final listRepositoryProvider = Provider<ListRepository>((ref) {
-  return LocalListRepository(
-    ref.watch(databaseProvider),
+  return SupabaseListRepository(
+    ref.watch(requiredSupabaseClientProvider),
     ref.watch(authRepositoryProvider),
   );
 });
@@ -167,7 +162,7 @@ final supabaseClientProvider = Provider<SupabaseClient?>((ref) {
 });
 
 final socialRepositoryProvider = Provider<SocialRepository>((ref) {
-  final client = ref.watch(supabaseClientProvider);
-  final db = ref.watch(databaseProvider);
-  return SupabaseSocialRepository(client: client, db: db);
+  return SupabaseSocialRepository(
+    client: ref.watch(supabaseClientProvider),
+  );
 });

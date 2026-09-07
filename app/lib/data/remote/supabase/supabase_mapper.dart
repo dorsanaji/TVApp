@@ -138,8 +138,10 @@ abstract final class SupabaseMapper {
   // ── SocialActivity ────────────────────────────────────────────────────
 
   static SocialActivity activityFromMap(Map<String, dynamic> map) {
+    final activityId = map['activity_id'] as String? ?? '';
     return SocialActivity(
-      activityId: map['activity_id'] as String? ?? '',
+      activityId: activityId,
+      mediaType: SocialActivity.mediaTypeOf(activityId),
       userId: map['user_id'] as String? ?? '',
       actionType: SocialActionType.fromString(
         map['action_type'] as String? ?? 'watched',

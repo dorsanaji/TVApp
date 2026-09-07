@@ -1,7 +1,6 @@
 import 'package:cinetrack/data/local/app_database.dart';
 import 'package:cinetrack/data/repositories/local_auth_repository.dart';
 import 'package:cinetrack/data/repositories/local_tracking_repository.dart';
-import 'package:cinetrack/data/services/email_sender.dart';
 import 'package:cinetrack/domain/entities/enums.dart';
 import 'package:cinetrack/domain/entities/media_summary.dart';
 import 'package:cinetrack/domain/entities/watch_progress.dart';
@@ -38,7 +37,6 @@ void main() {
     auth = LocalAuthRepository(
       db: db,
       storage: const FlutterSecureStorage(),
-      emailSender: DebugEmailSender(),
     );
     repository = LocalTrackingRepository(db, auth);
 
@@ -49,7 +47,6 @@ void main() {
       firstName: 'آریا',
       lastName: 'تست',
       username: 'tester',
-      email: 'tester@example.com',
       password: 'correct-horse',
     );
     expect(registered.isOk, isTrue, reason: '${registered.failureOrNull}');
@@ -230,12 +227,12 @@ void main() {
       expect(progress.state, ProgressState.finishedComplete);
     });
 
-    test('a dropped series part-way through is red', () async {
-      await repository.addToWatchlist(breakingBad, WatchStatus.dropped);
+    test('a series part-way through is yellow', () async {
+      await repository.addToWatchlist(breakingBad, WatchStatus.watching);
       await repository.setSeasonWatched(1396, 1, [101, 102], watched: true);
 
       final progress = (await repository.progressOf(1396)).valueOrNull!;
-      expect(progress.state, ProgressState.stopped);
+      expect(progress.state, ProgressState.partial);
     });
 
     test('progress for many series comes back in one call', () async {

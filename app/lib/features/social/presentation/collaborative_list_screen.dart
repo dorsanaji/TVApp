@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,10 +18,11 @@ import '../../../core/widgets/error_view.dart';
 import '../../../core/widgets/loading_shimmer.dart';
 import '../../../core/widgets/poster_card.dart';
 import '../../../domain/entities/media_summary.dart';
+import '../../../domain/entities/social/collaboration_request.dart';
 import '../../../domain/entities/social/custom_list.dart';
 import '../../../domain/entities/social/custom_list_item.dart';
 import '../../../domain/entities/social/list_collaborator.dart';
-import '../../../domain/entities/social/public_profile.dart';
+import '../../../domain/entities/social/list_invite_code.dart';
 import '../../../features/auth/presentation/auth_providers.dart';
 import '../../../router/app_router.dart';
 import 'social_providers.dart';
@@ -44,15 +46,13 @@ class CollaborativeListScreen extends ConsumerWidget {
     final listDetailsAsync = ref.watch(collaborativeListDetailsProvider(listId));
     final itemsAsync = ref.watch(collaborativeListItemsStreamProvider(listId));
     final collabsAsync = ref.watch(listCollaboratorsStreamProvider(listId));
-    final directCollabsAsync = ref.watch(listCollaboratorsProvider(listId));
     final currentUser = ref.watch(currentUserProvider).valueOrNull ??
         ref.watch(authRepositoryProvider).currentUserOrNull;
     final currentUserId = currentUser?.id;
     final isCollabAsync = ref.watch(isCollaboratorProvider(listId));
 
     final list = listAsync.valueOrNull ?? listDetailsAsync.valueOrNull;
-    final collabs =
-        collabsAsync.valueOrNull ?? directCollabsAsync.valueOrNull ?? const [];
+    final collabs = collabsAsync.valueOrNull ?? const [];
     final isOwner =
         list != null && currentUserId != null && list.isOwner(currentUserId);
     final isCollaborator = isOwner ||
@@ -65,13 +65,22 @@ class CollaborativeListScreen extends ConsumerWidget {
         actions: [
           if (isOwner)
             IconButton(
-              icon: const Icon(Icons.person_add_alt_1_outlined),
-              tooltip: 'مدیریت و افزودن همکاران',
+              icon: const Icon(Icons.manage_accounts_outlined),
+              tooltip: 'مدیریت همکاران',
               onPressed: () => _openCollaboratorsSheet(
                 context,
                 ref,
                 isOwner: isOwner,
               ),
+            ),
+          // Joining is a request the owner accepts, so leaving has to be the
+          // collaborator's own to make — otherwise the only way out is asking
+          // the owner to remove you.
+          if (!isOwner && isCollaborator && currentUserId != null)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'خروج از فهرست',
+              onPressed: () => _confirmLeave(context, ref, currentUserId),
             ),
         ],
       ),
@@ -121,9 +130,157 @@ class CollaborativeListScreen extends ConsumerWidget {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => _AddCollaboratorSheet(
+      builder: (context) => _ManageCollaboratorsSheet(
         listId: listId,
         isOwner: isOwner,
+      ),
+    );
+  }
+
+  /// Leaves the list, giving up edit access but leaving the list itself — and
+  /// anything already added to it — untouched.
+  Future<void> _confirmLeave(
+    BuildContext context,
+    WidgetRef ref,
+    String currentUserId,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('خروج از فهرست'),
+        content: const Text(
+          'دسترسی شما برای افزودن و حذف آثار در این فهرست برداشته می‌شود. '
+          'آثاری که پیش‌تر اضافه کرده‌اید در فهرست باقی می‌مانند. '
+          'برای بازگشت باید دوباره درخواست دسترسی بدهید.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('خروج'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    final res = await ref.read(socialActionsProvider).removeCollaborator(
+          listId: listId,
+          userId: currentUserId,
+        );
+
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          res.isOk
+              ? 'از فهرست خارج شدید.'
+              : (res.failureOrNull?.message ?? 'خطا در خروج از فهرست'),
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    // The list is no longer one of theirs, so drop back rather than leave them
+    // on a page they can no longer edit.
+    if (res.isOk && context.mounted) context.pop();
+  }
+}
+
+/// The invitation code for a private list, with a copy button.
+///
+/// Shown only to the owner of a private list: a private list appears on
+/// nobody's profile and in no browse screen, so handing out this code is the
+/// only way anyone else can reach it. The same code works for as many people
+/// as it is given to.
+class _InviteCodeCard extends StatelessWidget {
+  const _InviteCodeCard({required this.listId});
+
+  final String listId;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final code = ListInviteCode.forList(listId);
+    if (code == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        border: Border.all(
+          color: theme.colorScheme.secondary.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.vpn_key_outlined,
+                size: 20,
+                color: theme.colorScheme.secondary,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'کد دعوت این فهرست خصوصی',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  code,
+                  textDirection: TextDirection.ltr,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.copy_all_outlined),
+                tooltip: 'رونوشت کد',
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: code));
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('کد دعوت رونوشت شد.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'این کد را برای هرکس که می‌خواهید بفرستید؛ با وارد کردن آن در بخش '
+            '«پیوستن با کد دعوت» به این فهرست اضافه می‌شود. فهرست خصوصی در '
+            'پروفایل عمومی هیچ‌کدامتان دیده نمی‌شود.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -161,9 +318,15 @@ class _CollaborativeListBody extends ConsumerWidget {
       return;
     }
 
+    // Flip the banner now; the write and its re-read take several round trips.
+    final pending = pendingAccessRequestProvider(list.listId);
+    ref.read(pending.notifier).state = true;
+
     final res = await ref.read(socialActionsProvider).requestCollaboratorAccess(
           listId: list.listId,
         );
+
+    if (res.isErr) ref.read(pending.notifier).state = null;
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -180,9 +343,14 @@ class _CollaborativeListBody extends ConsumerWidget {
   }
 
   Future<void> _cancelRequest(BuildContext context, WidgetRef ref) async {
+    final pending = pendingAccessRequestProvider(list.listId);
+    ref.read(pending.notifier).state = false;
+
     final res = await ref.read(socialActionsProvider).cancelCollaboratorRequest(
           listId: list.listId,
         );
+
+    if (res.isErr) ref.read(pending.notifier).state = null;
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -259,7 +427,7 @@ class _CollaborativeListBody extends ConsumerWidget {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => _AddCollaboratorSheet(
+      builder: (context) => _ManageCollaboratorsSheet(
         listId: listId,
         isOwner: isOwner,
       ),
@@ -269,27 +437,16 @@ class _CollaborativeListBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final directItems =
-        ref.watch(collaborativeListItemsProvider(list.listId)).valueOrNull;
-    final streamItems = itemsAsync.valueOrNull;
-    final items = (streamItems != null && streamItems.isNotEmpty)
-        ? streamItems
-        : (directItems ?? streamItems ?? const []);
-
-    final directCollabs =
-        ref.watch(listCollaboratorsProvider(list.listId)).valueOrNull;
-    final streamCollabs = collabsAsync.valueOrNull;
-    final collabs = (streamCollabs != null && streamCollabs.isNotEmpty)
-        ? streamCollabs
-        : (directCollabs ?? streamCollabs ?? const []);
-
-    final streamRequests =
-        ref.watch(collaborationRequestsStreamProvider(list.listId)).valueOrNull;
-    final directRequests =
-        ref.watch(collaborationRequestsProvider(list.listId)).valueOrNull;
-    final requests = (streamRequests != null && streamRequests.isNotEmpty)
-        ? streamRequests
-        : (directRequests ?? streamRequests ?? const []);
+    // One source per thing. `watchList`, `watchListItems`,
+    // `watchCollaborators` and `watchCollaborationRequests` each perform a
+    // direct read and yield it before subscribing, so also watching the
+    // matching one-shot provider issued every query twice on open — which is
+    // most of what the loading wait was.
+    final items = itemsAsync.valueOrNull ?? const <CustomListItem>[];
+    final collabs = collabsAsync.valueOrNull ?? const <ListCollaborator>[];
+    final requests =
+        ref.watch(collaborationRequestsStreamProvider(list.listId)).valueOrNull ??
+            const <CollaborationRequest>[];
 
     final hasPending = ref.watch(hasPendingRequestProvider(list.listId));
 
@@ -388,6 +545,10 @@ class _CollaborativeListBody extends ConsumerWidget {
                 }(),
                 const SizedBox(height: AppSpacing.md),
 
+                // ── Invitation code, for a private list's owner ───────
+                if (isOwner && !list.isPublic)
+                  _InviteCodeCard(listId: list.listId),
+
                 // ── Owner Pending Collaborator Requests Card ──────────
                 if (isOwner && requests.isNotEmpty) ...[
                   Container(
@@ -413,11 +574,13 @@ class _CollaborativeListBody extends ConsumerWidget {
                               size: 20,
                             ),
                             const SizedBox(width: AppSpacing.sm),
-                            Text(
-                              'درخواست‌های دسترسی به فهرست (${requests.length.toPersian}):',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: theme.colorScheme.primary,
+                            Expanded(
+                              child: Text(
+                                'درخواست‌های دسترسی به فهرست (${requests.length.toPersian}):',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.primary,
+                                ),
                               ),
                             ),
                           ],
@@ -492,34 +655,65 @@ class _CollaborativeListBody extends ConsumerWidget {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
-                                      OutlinedButton(
-                                        style: OutlinedButton.styleFrom(
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: AppSpacing.sm),
+                                      Flexible(
+                                        child: OutlinedButton(
+                                          style: OutlinedButton.styleFrom(
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: AppSpacing.sm),
+                                          ),
+                                          onPressed: () => _rejectRequest(
+                                            context,
+                                            ref,
+                                            requesterId: requesterId,
+                                            username: username,
+                                          ),
+                                          child: const Text(
+                                            'رد',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
-                                        onPressed: () => _rejectRequest(
-                                          context,
-                                          ref,
-                                          requesterId: requesterId,
-                                          username: username,
-                                        ),
-                                        child: const Text('رد'),
                                       ),
                                       const SizedBox(width: AppSpacing.xs),
-                                      FilledButton(
-                                        style: FilledButton.styleFrom(
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: AppSpacing.md),
+                                      Flexible(
+                                        child: FilledButton(
+                                          style: FilledButton.styleFrom(
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            // The app theme gives every filled
+                                            // button `Size.fromHeight(48)`,
+                                            // whose width is `double.infinity`.
+                                            // That is harmless inside a Column,
+                                            // but a Row hands non-flexible
+                                            // children an unbounded main axis,
+                                            // so the button would be asked to
+                                            // lay out at an infinite width and
+                                            // the whole card would fail to lay
+                                            // out — leaving the owner staring
+                                            // at an empty screen.
+                                            //
+                                            // Height 40 matches the Material
+                                            // default the sibling
+                                            // OutlinedButton uses, so the two
+                                            // still line up.
+                                            minimumSize: const Size(0, 40),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: AppSpacing.md),
+                                          ),
+                                          onPressed: () => _acceptRequest(
+                                            context,
+                                            ref,
+                                            requesterId: requesterId,
+                                            username: username,
+                                          ),
+                                          child: const Text(
+                                            'تأیید دسترسی',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
-                                        onPressed: () => _acceptRequest(
-                                          context,
-                                          ref,
-                                          requesterId: requesterId,
-                                          username: username,
-                                        ),
-                                        child: const Text('تأیید دسترسی'),
                                       ),
                                     ],
                                   ),
@@ -536,13 +730,14 @@ class _CollaborativeListBody extends ConsumerWidget {
                 // ── Collaborators Rail ─────────────────────────────────
                 Row(
                   children: [
-                    Text(
-                      'همکاران فهرست (${collabs.length.toPersian}):',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
+                    Expanded(
+                      child: Text(
+                        'همکاران فهرست (${collabs.length.toPersian}):',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                    const Spacer(),
                     if (isOwner)
                       TextButton.icon(
                         style: TextButton.styleFrom(
@@ -554,8 +749,8 @@ class _CollaborativeListBody extends ConsumerWidget {
                           listId: list.listId,
                           isOwner: isOwner,
                         ),
-                        icon: const Icon(Icons.person_add_alt, size: 16),
-                        label: const Text('افزودن'),
+                        icon: const Icon(Icons.manage_accounts_outlined, size: 16),
+                        label: const Text('مدیریت'),
                       ),
                   ],
                 ),
@@ -823,9 +1018,16 @@ class _CollaborativeListBody extends ConsumerWidget {
 }
 
 // ── Search & Add Collaborator Sheet ──────────────────────────────────────
-
-class _AddCollaboratorSheet extends ConsumerStatefulWidget {
-  const _AddCollaboratorSheet({
+/// Manages who is already on the list.
+///
+/// Adding a collaborator outright is deliberately not offered: it wrote a row
+/// keyed to whatever was typed, so a typo or a username that resolved to a
+/// different account silently granted the wrong person edit access. Joining
+/// now goes one way — someone asks with the request button or an invitation
+/// code, and the owner accepts — which means the person joining is always the
+/// person who ends up on the list. The owner can still remove anyone.
+class _ManageCollaboratorsSheet extends ConsumerWidget {
+  const _ManageCollaboratorsSheet({
     required this.listId,
     required this.isOwner,
   });
@@ -833,79 +1035,41 @@ class _AddCollaboratorSheet extends ConsumerStatefulWidget {
   final String listId;
   final bool isOwner;
 
-  @override
-  ConsumerState<_AddCollaboratorSheet> createState() =>
-      _AddCollaboratorSheetState();
-}
-
-class _AddCollaboratorSheetState extends ConsumerState<_AddCollaboratorSheet> {
-  final _searchController = TextEditingController();
-  List<PublicProfile> _users = [];
-  bool _searching = false;
-  Timer? _debounceTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSuggestions();
-  }
-
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadSuggestions() async {
-    setState(() => _searching = true);
-    final res = await ref.read(socialRepositoryProvider).searchUsers('');
-    if (!mounted) return;
-    setState(() {
-      _searching = false;
-      _users = res.valueOrNull ?? [];
-    });
-  }
-
-  void _onSearchChanged(String query) {
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
-      final trimmed = query.trim();
-      setState(() => _searching = true);
-      final res =
-          await ref.read(socialRepositoryProvider).searchUsers(trimmed);
-      if (!mounted) return;
-      setState(() {
-        _searching = false;
-        _users = res.valueOrNull ?? [];
-      });
-    });
-  }
-
-  Future<void> _addCollaborator(String userIdOrUsername, String name) async {
-    final res = await ref.read(socialActionsProvider).addCollaborator(
-          listId: widget.listId,
-          userId: userIdOrUsername,
-        );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+  Future<void> _remove(
+    BuildContext context,
+    WidgetRef ref,
+    String userId,
+    String name,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('حذف همکار'),
         content: Text(
-          res.isOk
-              ? '«$name» به فهرست همکاران اضافه شد'
-              : (res.failureOrNull?.message ?? 'خطا در افزودن همکار'),
+          'دسترسی «$name» برای افزودن و حذف آثار در این فهرست برداشته می‌شود. '
+          'آثاری که پیش‌تر اضافه کرده است در فهرست باقی می‌مانند.',
         ),
-        behavior: SnackBarBehavior.floating,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('حذف'),
+          ),
+        ],
       ),
     );
-  }
 
-  Future<void> _removeCollaborator(String userId, String name) async {
-    final res = await ref.read(socialActionsProvider).removeCollaborator(
-          listId: widget.listId,
-          userId: userId,
-        );
-    if (!mounted) return;
+    if (confirmed != true || !context.mounted) return;
+
+    final res = await ref
+        .read(socialActionsProvider)
+        .removeCollaborator(listId: listId, userId: userId);
+
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -919,219 +1083,115 @@ class _AddCollaboratorSheetState extends ConsumerState<_AddCollaboratorSheet> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final collabsAsync =
-        ref.watch(listCollaboratorsStreamProvider(widget.listId));
-    final collabs = collabsAsync.valueOrNull ?? const [];
-    final currentUserId = ref.watch(currentUserProvider).valueOrNull?.id;
+    final collabs =
+        ref.watch(listCollaboratorsStreamProvider(listId)).valueOrNull ??
+            ref.watch(listCollaboratorsProvider(listId)).valueOrNull ??
+            const <ListCollaborator>[];
+    final currentUserId = ref.watch(currentUserProvider).valueOrNull?.id ??
+        ref.watch(authRepositoryProvider).currentUserOrNull?.id;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
         AppSpacing.lg,
         AppSpacing.xs,
         AppSpacing.lg,
-        MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
+        AppSpacing.sheetInset(context),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.person_add_outlined, color: theme.colorScheme.primary),
+              Icon(Icons.group_outlined, color: theme.colorScheme.primary),
               const SizedBox(width: AppSpacing.sm),
-              Text(
-                'مدیریت و افزودن همکاران',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  'همکاران فهرست (${collabs.length.toPersian})',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          TextField(
-            controller: _searchController,
-            onChanged: _onSearchChanged,
-            decoration: InputDecoration(
-              hintText: 'نام کاربری یا نام سینمادوست را جست‌وجو کنید...',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        _loadSuggestions();
-                      },
-                    )
-                  : null,
+          Text(
+            isOwner
+                ? 'برای افزوده شدن، کاربر باید درخواست دسترسی بفرستد یا با کد '
+                    'دعوت وارد شود. شما می‌توانید هر همکاری را حذف کنید.'
+                : 'تنها سازنده فهرست می‌تواند همکاران را مدیریت کند.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: AppSpacing.md),
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.45,
-            ),
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                // Direct add if typed query doesn't match existing profiles exactly
-                if (_searchController.text.trim().isNotEmpty &&
-                    !_users.any((u) =>
-                        u.username.toLowerCase() ==
-                        _searchController.text.trim().toLowerCase()))
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.person_add),
-                    ),
-                    title: Text(
-                      'افزودن نام کاربری «${_searchController.text.trim()}»',
-                    ),
-                    subtitle: const Text('افزودن مستقیم به فهرست'),
-                    trailing: FilledButton.tonal(
-                      onPressed: () => _addCollaborator(
-                        _searchController.text.trim(),
-                        _searchController.text.trim(),
-                      ),
-                      child: const Text('افزودن'),
-                    ),
-                  ),
-
-                if (_searching)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(AppSpacing.xl),
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                else ...[
-                  if (_users.isNotEmpty) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.xs,
-                      ),
-                      child: Text(
-                        _searchController.text.trim().isEmpty
-                            ? 'کاربران و سینمادوستان پیشنهادی:'
-                            : 'نتایج جست‌وجو:',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    ..._users.map((u) {
-                      final isAlreadyCollab =
-                          collabs.any((c) => c.userId == u.userId);
-                      final rawUserAvatar = u.avatarUrl?.trim();
-                      final cleanUserAvatar = (rawUserAvatar != null &&
-                              rawUserAvatar.isNotEmpty &&
-                              rawUserAvatar != 'null')
-                          ? rawUserAvatar
+          if (collabs.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+              child: Text(
+                'هنوز همکاری به این فهرست اضافه نشده است.',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+              ),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final collaborator in collabs)
+                    () {
+                      final rawAvatar = collaborator.avatarUrl?.trim();
+                      final avatar = (rawAvatar != null &&
+                              rawAvatar.isNotEmpty &&
+                              rawAvatar != 'null')
+                          ? rawAvatar
                           : null;
-                      final uname = u.username.trim();
-                      final displayName = uname.isNotEmpty ? uname : 'کاربر';
-                      final initialChar = displayName.isNotEmpty
-                          ? displayName.characters.first
-                          : '؟';
-                      final bio = u.bio?.trim();
+                      final uname = collaborator.username?.trim();
+                      final uid = collaborator.userId.trim();
+                      final displayName = (uname != null && uname.isNotEmpty)
+                          ? uname
+                          : (uid.isNotEmpty ? uid : 'کاربر');
+                      final canRemove =
+                          isOwner && collaborator.userId != currentUserId;
+
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: UserAvatar(
-                          path: cleanUserAvatar,
-                          initial: initialChar,
-                          radius: 18,
+                          path: avatar,
+                          initial: displayName.characters.first,
+                          radius: 16,
                         ),
                         title: Text(displayName),
-                        subtitle: (bio != null && bio.isNotEmpty)
-                            ? Text(
-                                bio,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              )
-                            : null,
-                        trailing: isAlreadyCollab
-                            ? const Chip(
-                                avatar: Icon(Icons.check, size: 14),
-                                label: Text('همکار'),
-                                visualDensity: VisualDensity.compact,
-                              )
-                            : FilledButton.tonal(
-                                onPressed: () => _addCollaborator(
-                                  u.userId,
+                        trailing: canRemove
+                            ? IconButton(
+                                icon: const Icon(
+                                  Icons.remove_circle_outline,
+                                  color: Colors.redAccent,
+                                  size: 20,
+                                ),
+                                tooltip: 'حذف همکار',
+                                onPressed: () => _remove(
+                                  context,
+                                  ref,
+                                  collaborator.userId,
                                   displayName,
                                 ),
-                                child: const Text('افزودن'),
-                              ),
+                              )
+                            : null,
+                        onTap: () => context.push('/user/${collaborator.userId}'),
                       );
-                    }),
-                  ],
+                    }(),
                 ],
-
-                // Current Collaborators list
-                if (collabs.isNotEmpty) ...[
-                  const Divider(height: AppSpacing.lg),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                    ),
-                    child: Text(
-                      'همکاران فعلی فهرست (${collabs.length.toPersian}):',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  ...collabs.map((c) {
-                    final canRemove =
-                        widget.isOwner && c.userId != currentUserId;
-                    final rawCollabAvatar = c.avatarUrl?.trim();
-                    final cleanCollabAvatar = (rawCollabAvatar != null &&
-                            rawCollabAvatar.isNotEmpty &&
-                            rawCollabAvatar != 'null')
-                        ? rawCollabAvatar
-                        : null;
-                    final uname = c.username?.trim();
-                    final uid = c.userId.trim();
-                    final displayName = (uname != null && uname.isNotEmpty)
-                        ? uname
-                        : (uid.isNotEmpty ? uid : 'کاربر');
-                    final initialChar = displayName.isNotEmpty
-                        ? displayName.characters.first
-                        : '؟';
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: UserAvatar(
-                        path: cleanCollabAvatar,
-                        initial: initialChar,
-                        radius: 16,
-                      ),
-                      title: Text(displayName),
-                      trailing: canRemove
-                          ? IconButton(
-                              icon: const Icon(
-                                Icons.remove_circle_outline,
-                                color: Colors.redAccent,
-                                size: 20,
-                              ),
-                              tooltip: 'حذف همکار',
-                              onPressed: () => _removeCollaborator(
-                                c.userId,
-                                displayName,
-                              ),
-                            )
-                          : null,
-                    );
-                  }),
-                ],
-              ],
+              ),
             ),
-          ),
         ],
       ),
     );
   }
 }
-

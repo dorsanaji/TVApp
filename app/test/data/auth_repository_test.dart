@@ -2,7 +2,6 @@ import 'package:cinetrack/core/error/failure.dart';
 import 'package:cinetrack/core/security/password_hasher.dart';
 import 'package:cinetrack/data/local/app_database.dart';
 import 'package:cinetrack/data/repositories/local_auth_repository.dart';
-import 'package:cinetrack/data/services/email_sender.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,7 +11,6 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   late AppDatabase db;
   late LocalAuthRepository repository;
-  late DebugEmailSender email;
 
   setUp(() {
     // The plugin cannot run in a unit test, so an in-memory implementation
@@ -20,11 +18,9 @@ void main() {
     // platform keystore.
     FlutterSecureStorage.setMockInitialValues({});
     db = AppDatabase(NativeDatabase.memory());
-    email = DebugEmailSender();
     repository = LocalAuthRepository(
       db: db,
       storage: const FlutterSecureStorage(),
-      emailSender: email,
     );
   });
 
@@ -38,7 +34,6 @@ void main() {
       firstName: 'آریا',
       lastName: 'تمکین',
       username: 'arya',
-      email: 'Arya@Example.com',
       password: 'correct-horse',
     );
     expect(result.isOk, isTrue, reason: '${result.failureOrNull}');
@@ -87,22 +82,14 @@ void main() {
       expect(repository.currentUserOrNull?.displayName, 'آریا تمکین');
     });
 
-    test('a duplicate email is rejected, naming the field', () async {
+    test('an account stores no address at all', () async {
       await registerAlice();
 
-      final result = await repository.register(
-        firstName: 'کسی',
-        lastName: 'دیگر',
-        username: 'someone-else',
-        // Different case: addresses are normalised, so this is the same one.
-        email: 'arya@example.com',
-        password: 'another-password',
-      );
-
-      final failure = result.failureOrNull;
-      expect(failure, isA<ValidationFailure>());
-      expect((failure! as ValidationFailure).field, 'email');
-      expect(await db.select(db.users).get(), hasLength(1));
+      // The users table has no email column: the username is the whole
+      // identity, so nothing about an account can leak by address.
+      final columns =
+          db.users.$columns.map((c) => c.name).toSet();
+      expect(columns, isNot(contains('email')));
     });
 
     test('a duplicate username is rejected, naming the field', () async {
@@ -112,28 +99,28 @@ void main() {
         firstName: 'کسی',
         lastName: 'دیگر',
         username: 'arya',
-        email: 'other@example.com',
         password: 'another-password',
       );
 
       expect((result.failureOrNull! as ValidationFailure).field, 'username');
     });
 
-    test('a malformed email and a short password are rejected', () async {
-      final badEmail = await repository.register(
+    test('a short username and a short password are rejected', () async {
+      final shortUsername = await repository.register(
         firstName: 'ا',
         lastName: 'ب',
-        username: 'user1',
-        email: 'not-an-email',
+        username: 'ab',
         password: 'long-enough-password',
       );
-      expect((badEmail.failureOrNull! as ValidationFailure).field, 'email');
+      expect(
+        (shortUsername.failureOrNull! as ValidationFailure).field,
+        'username',
+      );
 
       final shortPassword = await repository.register(
         firstName: 'ا',
         lastName: 'ب',
         username: 'user2',
-        email: 'ok@example.com',
         password: 'short',
       );
       expect(
@@ -158,7 +145,7 @@ void main() {
       await repository.logout();
 
       final result = await repository.login(
-        email: 'arya@example.com',
+        username: 'arya',
         password: 'correct-horse',
       );
 
@@ -171,7 +158,7 @@ void main() {
       await repository.logout();
 
       final result = await repository.login(
-        email: 'arya@example.com',
+        username: 'arya',
         password: 'wrong',
       );
 
@@ -179,20 +166,20 @@ void main() {
       expect(repository.currentUserOrNull, isNull);
     });
 
-    test('an unknown address and a wrong password look identical', () async {
+    test('an unknown user and a wrong password look identical', () async {
       await registerAlice();
       await repository.logout();
 
       final unknown = await repository.login(
-        email: 'nobody@example.com',
+        username: 'nobody',
         password: 'whatever',
       );
       final wrong = await repository.login(
-        email: 'arya@example.com',
+        username: 'arya',
         password: 'whatever',
       );
 
-      // Otherwise the login form becomes an address-enumeration oracle.
+      // Otherwise the login form becomes a username-enumeration oracle.
       expect(unknown.failureOrNull!.message, wrong.failureOrNull!.message);
     });
 
@@ -211,86 +198,11 @@ void main() {
       final restarted = LocalAuthRepository(
         db: db,
         storage: const FlutterSecureStorage(),
-        emailSender: email,
       );
       addTearDown(restarted.dispose);
       await restarted.restoreSession();
 
       expect(restarted.currentUserOrNull?.username, 'arya');
-    });
-  });
-
-  group('FR-03 · password recovery', () {
-    test('a code is issued and lets the password be changed', () async {
-      await registerAlice();
-      await repository.requestPasswordReset('arya@example.com');
-
-      final code = email.lastCode;
-      expect(code, isNotNull);
-
-      final reset = await repository.resetPassword(
-        email: 'arya@example.com',
-        code: code!,
-        newPassword: 'brand-new-password',
-      );
-      expect(reset.isOk, isTrue);
-
-      await repository.logout();
-      final login = await repository.login(
-        email: 'arya@example.com',
-        password: 'brand-new-password',
-      );
-      expect(login.isOk, isTrue);
-    });
-
-    test('the code is single-use', () async {
-      await registerAlice();
-      await repository.requestPasswordReset('arya@example.com');
-      final code = email.lastCode!;
-
-      await repository.resetPassword(
-        email: 'arya@example.com',
-        code: code,
-        newPassword: 'first-new-password',
-      );
-      final replay = await repository.resetPassword(
-        email: 'arya@example.com',
-        code: code,
-        newPassword: 'second-new-password',
-      );
-
-      expect(replay.isErr, isTrue);
-    });
-
-    test('a wrong code is rejected', () async {
-      await registerAlice();
-      await repository.requestPasswordReset('arya@example.com');
-
-      final result = await repository.resetPassword(
-        email: 'arya@example.com',
-        code: '000000',
-        newPassword: 'brand-new-password',
-      );
-
-      expect(result.isErr, isTrue);
-    });
-
-    test('the stored code is hashed, not kept in the clear', () async {
-      await registerAlice();
-      await repository.requestPasswordReset('arya@example.com');
-
-      final row = await db.select(db.passwordResets).getSingle();
-      expect(row.codeHash, isNot(email.lastCode));
-    });
-
-    test('requesting a reset for an unknown address still succeeds', () async {
-      final result = await repository.requestPasswordReset(
-        'nobody@example.com',
-      );
-
-      // Reporting "no such account" would leak which addresses are registered.
-      expect(result.isOk, isTrue);
-      expect(email.lastCode, isNull);
     });
   });
 
@@ -315,7 +227,6 @@ void main() {
         firstName: 'ب',
         lastName: 'ج',
         username: 'taken',
-        email: 'other@example.com',
         password: 'another-password',
       );
 

@@ -2,12 +2,13 @@ import 'package:cinetrack/domain/entities/enums.dart';
 import 'package:cinetrack/domain/entities/social/custom_list.dart';
 import 'package:cinetrack/domain/entities/social/custom_list_item.dart';
 import 'package:cinetrack/domain/repositories/auth_repository.dart';
-import 'package:cinetrack/features/auth/presentation/auth_providers.dart';
 import 'package:cinetrack/features/social/presentation/collaborative_list_screen.dart';
 import 'package:cinetrack/features/social/presentation/social_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/fake_auth.dart';
 
 void main() {
   const otherUserList = CustomList(
@@ -31,7 +32,6 @@ void main() {
 
   const currentUser = AppUser(
     id: 'my_user_id',
-    email: 'me@example.com',
     username: 'من',
     firstName: 'علی',
     lastName: 'محمدی',
@@ -41,7 +41,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          currentUserProvider.overrideWith((ref) => Stream.value(currentUser)),
+          ...authOverrides(currentUser),
           collaborativeListStreamProvider('list_other')
               .overrideWith((ref) => Stream.value(otherUserList)),
           collaborativeListDetailsProvider('list_other')

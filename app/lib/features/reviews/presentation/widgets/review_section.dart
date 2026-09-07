@@ -10,6 +10,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/avatar_picker.dart';
 import '../../../../domain/entities/media_summary.dart';
+import '../../../../domain/entities/social/social_activity.dart';
 import '../../../../domain/repositories/review_repository.dart';
 import '../../../auth/presentation/auth_providers.dart';
 import '../review_providers.dart';
@@ -181,6 +182,7 @@ class _ReviewTileState extends ConsumerState<_ReviewTile> {
                         await ref
                             .read(reviewRepositoryProvider)
                             .deleteReview(review.id);
+                        ref.read(reviewRevisionProvider.notifier).state++;
                       }
                     },
                     itemBuilder: (context) => const [
@@ -274,11 +276,12 @@ Future<void> showReviewComposer(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
+    useSafeArea: true,
     builder: (context) => Padding(
       // Symmetric horizontally, so no physical edge is pinned; the bottom
-      // inset lifts the sheet clear of the keyboard.
+      // inset lifts the sheet clear of both the keyboard and the gesture bar.
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg).copyWith(
-        bottom: MediaQuery.viewInsetsOf(context).bottom + AppSpacing.lg,
+        bottom: AppSpacing.sheetInset(context),
       ),
       child: StatefulBuilder(
         builder: (context, setState) => Form(
@@ -346,9 +349,59 @@ Future<void> showReviewComposer(
         );
 
   final failure = result.failureOrNull;
-  if (failure != null && context.mounted) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(failure.message)));
+  if (failure != null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(failure.message)));
+    }
+    return;
+  }
+
+  ref.read(reviewRevisionProvider.notifier).state++;
+
+  // A comment is public, so it travels: it shows under the title and in the
+  // feeds of people who follow the author. Diary entries deliberately do
+  // neither — see `SocialActionType.diary`.
+  await _announceReview(ref, item: item, body: controller.text);
+}
+
+Future<void> _announceReview(
+  WidgetRef ref, {
+  required MediaSummary item,
+  required String body,
+}) async {
+  try {
+    final user = ref.read(currentUserProvider).valueOrNull ??
+        ref.read(authRepositoryProvider).currentUserOrNull;
+    if (user == null) return;
+
+    final rating = ref.read(myRatingProvider((id: item.id, type: item.type)))
+        .valueOrNull;
+
+    await ref.read(socialRepositoryProvider).logActivity(
+          SocialActivity(
+            activityId: SocialActivity.buildId(
+              prefix: 'review',
+              userId: user.id,
+              mediaType: item.type,
+              mediaId: item.id,
+            ),
+            userId: user.id,
+            actionType: SocialActionType.reviewed,
+            movieId: item.id,
+            mediaType: item.type,
+            timestamp: DateTime.now(),
+            movieTitle: item.title,
+            moviePoster: item.posterPath,
+            username: user.displayName,
+            userAvatar: user.avatarPath,
+            rating: rating?.toDouble(),
+            reviewText: body.trim(),
+          ),
+        );
+    ref.read(socialActivityRevisionProvider.notifier).state++;
+  } catch (_) {
+    // A missing feed entry is not worth failing a posted comment over.
   }
 }

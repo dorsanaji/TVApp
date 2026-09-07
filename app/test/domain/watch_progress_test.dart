@@ -81,24 +81,6 @@ void main() {
       expect(progress.state, ProgressState.finishedComplete);
     });
 
-    test('قرمز — the user stopped without watching everything', () {
-      const dropped = WatchProgress(
-        watchedEpisodes: 4,
-        totalEpisodes: 20,
-        hasFinishedAiring: true,
-        userStatus: WatchStatus.dropped,
-      );
-      const paused = WatchProgress(
-        watchedEpisodes: 4,
-        totalEpisodes: 20,
-        hasFinishedAiring: true,
-        userStatus: WatchStatus.paused,
-      );
-
-      expect(dropped.state, ProgressState.stopped);
-      expect(paused.state, ProgressState.stopped);
-    });
-
     test('زرد — unwatched episodes remain', () {
       const progress = WatchProgress(
         watchedEpisodes: 7,
@@ -112,27 +94,27 @@ void main() {
   });
 
   group('FR-11 · precedence between conditions', () {
-    test('nothing watched reads as black even when marked dropped', () {
+    test('nothing watched reads as black whatever the declared status', () {
       const progress = WatchProgress(
         watchedEpisodes: 0,
         totalEpisodes: 20,
         hasFinishedAiring: true,
-        userStatus: WatchStatus.dropped,
+        userStatus: WatchStatus.watching,
       );
 
-      // Red means "stopped part-way". A series never started is simply
-      // untouched, so black is the honest signal.
+      // Saying you are watching something you have not started does not make
+      // the bar partial — black is the honest signal.
       expect(progress.state, ProgressState.none);
     });
 
     test(
-      'watched in full then paused still counts as complete, not stopped',
+      'every episode watched counts as complete even if still marked watching',
       () {
         const progress = WatchProgress(
           watchedEpisodes: 20,
           totalEpisodes: 20,
           hasFinishedAiring: true,
-          userStatus: WatchStatus.paused,
+          userStatus: WatchStatus.watching,
         );
 
         expect(progress.state, ProgressState.finishedComplete);

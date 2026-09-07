@@ -11,29 +11,36 @@ enum MediaType {
   bool get isSeries => this == MediaType.series;
 }
 
-/// The six statuses named in FR-09 §5.9.
+/// What the user declares about a title (FR-09 §5.9).
 ///
-/// Note that `favourite` is listed there as a status *and* separately in
-/// FR-16 as its own list. It is kept in both places deliberately: the brief
-/// asks for both, and a user can mark something favourite while also having
-/// it "in progress".
+/// Deliberately narrow. "Paused" and "dropped" were dropped: they said the
+/// same thing as one another and neither told the user anything the episode
+/// marks of FR-10 do not already show. `favourite` is not here either — that
+/// is the heart of FR-16, a flag a title carries *alongside* a status rather
+/// than instead of one, and modelling it as a status meant marking something
+/// favourite silently erased whether you had watched it.
 enum WatchStatus {
   planToWatch(AppStrings.statusPlanToWatch),
   watching(AppStrings.statusWatching),
-  watched(AppStrings.statusWatched),
-  paused(AppStrings.statusPaused),
-  dropped(AppStrings.statusDropped),
-  favourite(AppStrings.statusFavourite);
+  watched(AppStrings.statusWatched);
 
   const WatchStatus(this.label);
 
   /// Persian label shown in the UI.
   final String label;
 
-  /// FR-11 treats "paused" and "dropped" alike: both mean the user stopped
-  /// watching without finishing, which is the red progress state.
-  bool get isStopped =>
-      this == WatchStatus.paused || this == WatchStatus.dropped;
+  /// The statuses offered for [type].
+  ///
+  /// A film is either seen or not, so it has no "in progress"; a series does,
+  /// because it is watched an episode at a time.
+  static List<WatchStatus> availableFor(MediaType type) => switch (type) {
+    MediaType.movie => const [WatchStatus.watched, WatchStatus.planToWatch],
+    MediaType.series => const [
+      WatchStatus.watched,
+      WatchStatus.watching,
+      WatchStatus.planToWatch,
+    ],
+  };
 }
 
 /// Broadcast status of a series (FR-07 field 7).

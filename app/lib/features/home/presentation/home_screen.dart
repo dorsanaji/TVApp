@@ -30,9 +30,9 @@ class HomeScreen extends ConsumerWidget {
         title: const Text(AppStrings.appName),
         actions: [
           IconButton(
-            icon: const Icon(Icons.dynamic_feed_rounded),
-            tooltip: 'فعالیت‌های دوستان (Activity Feed)',
-            onPressed: () => context.push(AppRoutes.activityFeed),
+            icon: const Icon(Icons.search_rounded),
+            tooltip: AppStrings.navSearch,
+            onPressed: () => context.push(AppRoutes.search),
           ),
         ],
       ),

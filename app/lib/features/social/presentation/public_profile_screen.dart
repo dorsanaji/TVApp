@@ -17,6 +17,7 @@ import '../../../core/widgets/sign_in_prompt.dart';
 import '../../../domain/entities/social/public_profile.dart';
 import '../../../domain/entities/social/social_activity.dart';
 import '../../auth/presentation/auth_providers.dart';
+import 'profile_lists_screen.dart';
 import 'social_providers.dart';
 
 /// Task 3.1: PublicProfileScreen.
@@ -30,6 +31,7 @@ class PublicProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(publicProfileProvider(userId));
+    final profile = profileAsync.valueOrNull;
     final currentUser = ref.watch(currentUserProvider).valueOrNull ??
         ref.watch(authRepositoryProvider).currentUserOrNull;
     final currentUserId = currentUser?.id;
@@ -41,18 +43,116 @@ class PublicProfileScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(profileAsync.valueOrNull?.username ?? 'پروفایل کاربر'),
       ),
-      body: switch (profileAsync) {
-        AsyncData(:final value) => _ProfileContent(
-            profile: value,
-            isOwnProfile: isOwnProfile,
-            routeUserId: userId,
-          ),
-        AsyncError(:final error) => ErrorView(
-            failure: error is Failure ? error : ErrorMapper.fromUnknown(error),
-            onRetry: () => ref.invalidate(publicProfileProvider(userId)),
-          ),
-        _ => LoadingShimmer.listRows(),
-      },
+      // Keep showing the profile we already have while a refresh is in
+      // flight. Falling back to the shimmer on every refetch tore down the
+      // follow button along with the rest of the page, throwing away its
+      // optimistic state and making a fresh tap look like it had been ignored.
+      body: profile != null
+          ? _ProfileContent(
+              profile: profile,
+              isOwnProfile: isOwnProfile,
+              routeUserId: userId,
+            )
+          : switch (profileAsync) {
+              AsyncError(:final error) => ErrorView(
+                  failure:
+                      error is Failure ? error : ErrorMapper.fromUnknown(error),
+                  onRetry: () => ref.invalidate(publicProfileProvider(userId)),
+                ),
+              _ => LoadingShimmer.listRows(),
+            },
+    );
+  }
+}
+
+/// Follow / unfollow control.
+///
+/// The button keeps its own idea of the follow state from the moment it is
+/// tapped. Following writes to Supabase and then re-reads the profile, which
+/// is several round trips; driving the label straight off the provider meant
+/// the button sat on the old label until all of that finished, so a tap looked
+/// like it had done nothing and the state only looked right after leaving the
+/// page and coming back.
+class _FollowButton extends ConsumerStatefulWidget {
+  const _FollowButton({required this.profile, required this.routeUserId});
+
+  final PublicProfile profile;
+
+  /// The id this screen was routed with. It can be a username, whereas the
+  /// action resolves to the canonical id — so the two are invalidated
+  /// separately or the visible copy keeps its stale value.
+  final String routeUserId;
+
+  @override
+  ConsumerState<_FollowButton> createState() => _FollowButtonState();
+}
+
+class _FollowButtonState extends ConsumerState<_FollowButton> {
+  bool _busy = false;
+
+  Future<void> _toggle() async {
+    if (_busy) return;
+
+    if (!ref.read(isSignedInProvider)) {
+      showSignInPrompt(context, action: 'دنبال کردن کاربران');
+      return;
+    }
+
+    final pendingFollow = pendingFollowProvider(widget.profile.userId);
+    final wantFollow =
+        !(ref.read(pendingFollow) ?? widget.profile.isFollowing);
+
+    ref.read(pendingFollow.notifier).state = wantFollow;
+    setState(() => _busy = true);
+
+    final res = await ref
+        .read(socialActionsProvider)
+        .toggleFollow(widget.profile.userId, follow: wantFollow);
+
+    if (!mounted) return;
+
+    if (res.isErr) {
+      // Put the button — and the count that follows it — back, and say why.
+      ref.read(pendingFollow.notifier).state = null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res.failureOrNull?.message ?? 'خطا در عملیات'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      // The signed-in user's own following count changed too.
+      final me = ref.read(currentUserProvider).valueOrNull?.id ??
+          ref.read(authRepositoryProvider).currentUserOrNull?.id;
+      if (me != null) ref.invalidate(publicProfileProvider(me));
+
+      if (widget.routeUserId != widget.profile.userId) {
+        ref.invalidate(publicProfileProvider(widget.routeUserId));
+      }
+    }
+
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isFollowing =
+        ref.watch(pendingFollowProvider(widget.profile.userId)) ??
+            widget.profile.isFollowing;
+
+    return SizedBox(
+      width: 200,
+      child: isFollowing
+          ? OutlinedButton.icon(
+              onPressed: _toggle,
+              icon: const Icon(Icons.check, size: 18),
+              label: const Text('دنبال می‌کنید'),
+            )
+          : FilledButton.icon(
+              onPressed: _toggle,
+              icon: const Icon(Icons.person_add_outlined, size: 18),
+              label: const Text('دنبال کردن'),
+            ),
     );
   }
 }
@@ -71,8 +171,6 @@ class _ProfileContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final activitiesAsync =
-        ref.watch(userWatchedActivitiesProvider(profile.userId));
     final listsAsync = ref.watch(userPublicListsProvider(profile.userId));
 
     return ListView(
@@ -139,15 +237,32 @@ class _ProfileContent extends ConsumerWidget {
           children: [
             _StatColumn(
               label: 'دنبال‌کننده‌ها',
-              value: profile.followersCount.toPersian,
+              // Follow is applied optimistically, so this count has to move
+              // with the button rather than wait for the round trip. The
+              // adjustment cancels itself out as soon as the refreshed
+              // profile catches up.
+              value: () {
+                final pending =
+                    ref.watch(pendingFollowProvider(profile.userId));
+                final delta = pending == null || pending == profile.isFollowing
+                    ? 0
+                    : (pending ? 1 : -1);
+                return (profile.followersCount + delta)
+                    .clamp(0, 1 << 31)
+                    .toPersian;
+              }(),
+              onTap: () => context.push('/user/${profile.userId}/followers'),
             ),
             _StatColumn(
               label: 'دنبال‌شده‌ها',
               value: profile.followingCount.toPersian,
+              onTap: () => context.push('/user/${profile.userId}/following'),
             ),
             _StatColumn(
-              label: 'فیلم‌های دیده‌شده',
+              // Films *and* series — the profile headline does not split them.
+              label: 'فیلم و سریال\nدیده‌شده',
               value: profile.totalWatched.toPersian,
+              onTap: () => context.push('/user/${profile.userId}/watched'),
             ),
           ],
         ),
@@ -156,200 +271,60 @@ class _ProfileContent extends ConsumerWidget {
         // Follow / Unfollow Button
         if (!isOwnProfile)
           Center(
-            child: SizedBox(
-              width: 200,
-              child: profile.isFollowing
-                  ? OutlinedButton.icon(
-                      onPressed: () async {
-                        final res = await ref
-                            .read(socialActionsProvider)
-                            .toggleFollow(profile.userId, follow: false);
-                        if (context.mounted && res.isErr) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(res.failureOrNull?.message ?? 'خطا در عملیات'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        }
-                        ref.invalidate(publicProfileProvider(routeUserId));
-                        ref.invalidate(publicProfileProvider(profile.userId));
-                        ref.invalidate(myFollowedUserIdsProvider);
-                      },
-                      icon: const Icon(Icons.check, size: 18),
-                      label: const Text('دنبال می‌کنید'),
-                    )
-                  : FilledButton.icon(
-                      onPressed: () async {
-                        final signedIn = ref.read(isSignedInProvider);
-                        if (!signedIn) {
-                          showSignInPrompt(context, action: 'دنبال کردن کاربران');
-                          return;
-                        }
-                        final res = await ref
-                            .read(socialActionsProvider)
-                            .toggleFollow(profile.userId, follow: true);
-                        if (context.mounted && res.isErr) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(res.failureOrNull?.message ?? 'خطا در عملیات'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        }
-                        ref.invalidate(publicProfileProvider(routeUserId));
-                        ref.invalidate(publicProfileProvider(profile.userId));
-                        ref.invalidate(myFollowedUserIdsProvider);
-                      },
-                      icon: const Icon(Icons.person_add_outlined, size: 18),
-                      label: const Text('دنبال کردن'),
-                    ),
+            child: _FollowButton(
+              profile: profile,
+              routeUserId: routeUserId,
             ),
           ),
         const Divider(height: AppSpacing.xxl),
 
-        // ── 3. Quick Stats Grid ───────────────────────────────────────
-        Text(
-          'خلاصه فعالیت',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: AppSpacing.md,
-          crossAxisSpacing: AppSpacing.md,
-          childAspectRatio: 2.0,
+        // ── 3. Favourite genres, and the way into the diary ───────────
+        // IntrinsicHeight, not `CrossAxisAlignment.stretch`: this Row sits in
+        // a ListView, so its own height is unbounded, and stretching children
+        // into that hands them an infinite height and fails the layout.
+        IntrinsicHeight(
+          child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _StatCard(
-              icon: Icons.movie_outlined,
-              label: 'مجموع تماشا',
-              value: '${profile.totalWatched.toPersian} اثر',
+            Expanded(
+              child: _StatCard(
+                icon: Icons.category_outlined,
+                label: 'ژانرهای موردعلاقه',
+                value: profile.favoriteGenres.isEmpty
+                    ? 'نامشخص'
+                    : profile.favoriteGenres.join('، '),
+              ),
             ),
-            _StatCard(
-              icon: Icons.category_outlined,
-              label: 'ژانر موردعلاقه',
-              value: profile.favoriteGenre ?? 'نامشخص',
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: _StatCard(
+                icon: Icons.menu_book_outlined,
+                label: 'دفترچه تماشا',
+                value: 'مشاهده',
+                onTap: () => context.push('/user/${profile.userId}/diary'),
+              ),
             ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.xl),
-
-        // ── 3.5. Watched Titles & Notes ──────────────────────────────
-        Text(
-          'آثار تماشاشده و یادداشت‌ها',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: AppSpacing.sm),
-        switch (activitiesAsync) {
-          AsyncData(:final value) => () {
-              // Deduplicate by movieId to eliminate any repeat/spam posters
-              final uniqueActs = <int, SocialActivity>{};
-              for (final act in value) {
-                uniqueActs.putIfAbsent(act.movieId, () => act);
-              }
-              final displayList = uniqueActs.values.toList();
-
-              if (displayList.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-                  child: Text(
-                    'هنوز فیلم یا سریالی ثبت نشده است.',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                );
-              }
-
-              return SizedBox(
-                height: 145,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: displayList.length,
-                  separatorBuilder: (_, _) =>
-                      const SizedBox(width: AppSpacing.sm),
-                  itemBuilder: (context, index) {
-                      final act = displayList[index];
-                      final rawPoster = act.moviePoster;
-                      final cleanPoster = (rawPoster != null &&
-                              rawPoster.trim().isNotEmpty &&
-                              rawPoster.trim() != 'null')
-                          ? rawPoster.trim()
-                          : null;
-                      final posterUrl =
-                          cleanPoster != null ? Env.imageUrl(cleanPoster) : null;
-                      return SizedBox(
-                        width: 82,
-                        child: InkWell(
-                          onTap: () => context.push('/movie/${act.movieId}'),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              ClipRRect(
-                                borderRadius:
-                                    BorderRadius.circular(AppSpacing.radiusSm),
-                                child: (posterUrl != null &&
-                                        posterUrl.trim().isNotEmpty &&
-                                        posterUrl.trim() != 'null')
-                                    ? CachedNetworkImage(
-                                        imageUrl: posterUrl.trim(),
-                                        width: 82,
-                                        height: 110,
-                                        fit: BoxFit.cover,
-                                        placeholder: (_, _) => Container(
-                                          width: 82,
-                                          height: 110,
-                                          color: Colors.grey.shade800,
-                                          child: const Icon(
-                                            Icons.movie,
-                                            size: 28,
-                                          ),
-                                        ),
-                                        errorWidget: (_, _, _) => Container(
-                                          width: 82,
-                                          height: 110,
-                                          color: Colors.grey.shade800,
-                                          child: const Icon(
-                                            Icons.movie,
-                                            size: 28,
-                                          ),
-                                        ),
-                                      )
-                                    : Container(
-                                        width: 82,
-                                        height: 110,
-                                        color: Colors.grey.shade800,
-                                        child: const Icon(
-                                          Icons.movie,
-                                          size: 28,
-                                        ),
-                                      ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                act.movieTitle ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                );
-              }(),
-          _ => const SizedBox.shrink(),
-        },
         const SizedBox(height: AppSpacing.xl),
+
+        // ── 3.1. Favourites ───────────────────────────────────────────
+        _PosterRail(
+          title: 'موردعلاقه‌ها',
+          emptyMessage: 'هنوز اثری به موردعلاقه‌ها افزوده نشده است.',
+          activities: ref.watch(userFavouritesProvider(profile.userId)),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+
+        // ── 3.5. Recent activity ─────────────────────────────────────
+        _PosterRail(
+          title: 'فعالیت‌های اخیر',
+          emptyMessage: 'هنوز فیلم یا سریالی ثبت نشده است.',
+          activities: ref.watch(userRecentTitlesProvider(profile.userId)),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+
 
         // ── 4. Public Custom Lists ────────────────────────────────────
         Text(
@@ -442,31 +417,108 @@ class _ProfileContent extends ConsumerWidget {
   }
 }
 
-class _StatColumn extends StatelessWidget {
-  const _StatColumn({required this.label, required this.value});
+/// A titled horizontal strip of posters, used for the favourites and
+/// recent-activity sections.
+class _PosterRail extends StatelessWidget {
+  const _PosterRail({
+    required this.title,
+    required this.emptyMessage,
+    required this.activities,
+  });
 
-  final String label;
-  final String value;
+  final String title;
+  final String emptyMessage;
+  final AsyncValue<List<SocialActivity>> activities;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          value,
-          style: theme.textTheme.titleMedium?.copyWith(
+          title,
+          style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: AppSpacing.xs),
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+        const SizedBox(height: AppSpacing.sm),
+        switch (activities) {
+          AsyncData(:final value) when value.isEmpty => Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Text(
+              emptyMessage,
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
           ),
-        ),
+          AsyncData(:final value) => SizedBox(
+            height: 160,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: value.length,
+              separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+              itemBuilder: (context, index) =>
+                  ActivityPoster(activity: value[index], width: 86),
+            ),
+          ),
+          AsyncError() => Text(
+            'خطا در بارگذاری',
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
+          _ => const SizedBox(
+            height: 160,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        },
       ],
+    );
+  }
+}
+
+class _StatColumn extends StatelessWidget {
+  const _StatColumn({
+    required this.label,
+    required this.value,
+    this.onTap,
+  });
+
+  final String label;
+  final String value;
+
+  /// Every counter on this row stands for a list; tapping opens it.
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.xs,
+        ),
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -476,11 +528,16 @@ class _StatCard extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.onTap,
   });
 
   final IconData icon;
   final String label;
   final String value;
+
+  /// When set the whole card is tappable — used by the diary card, which is
+  /// a door rather than a statistic.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -488,8 +545,14 @@ class _StatCard extends StatelessWidget {
     return Card(
       elevation: 0,
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.md,
+        ),
         child: Row(
           children: [
             Icon(icon, color: theme.colorScheme.primary, size: 28),
@@ -514,7 +577,14 @@ class _StatCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (onTap != null)
+              Icon(
+                Icons.chevron_left,
+                size: 20,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
           ],
+        ),
         ),
       ),
     );

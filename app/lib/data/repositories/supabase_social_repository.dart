@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -18,7 +17,6 @@ import '../../domain/entities/social/list_collaborator.dart';
 import '../../domain/entities/social/public_profile.dart';
 import '../../domain/entities/social/social_activity.dart';
 import '../../domain/repositories/social_repository.dart';
-import '../local/app_database.dart';
 import '../remote/supabase/supabase_mapper.dart';
 import '../remote/supabase/supabase_tables.dart';
 
@@ -28,16 +26,9 @@ import '../remote/supabase/supabase_tables.dart';
 ///
 /// Clean Architecture: encapsulates BaaS details inside the data layer.
 class SupabaseSocialRepository implements SocialRepository {
-  SupabaseSocialRepository({
-    SupabaseClient? client,
-    AppDatabase? db,
-  })  : _client = client,
-        _db = db {
-    _seedInitialProfiles();
-  }
+  SupabaseSocialRepository({SupabaseClient? client}) : _client = client;
 
   final SupabaseClient? _client;
-  final AppDatabase? _db;
 
   // ── Offline / In-Memory Mock Fallback Storage ──────────────────────────
   static final Map<String, PublicProfile> _mockProfiles = {};
@@ -70,37 +61,6 @@ class SupabaseSocialRepository implements SocialRepository {
     _mockListItems.clear();
     _mockActivities.clear();
     _mockRequests.clear();
-  }
-
-  void _seedInitialProfiles() {
-    if (_mockProfiles.isNotEmpty) return;
-    _mockProfiles['u_sara'] = const PublicProfile(
-      userId: 'u_sara',
-      username: 'sara_movie',
-      bio: 'منتقد سینما، عاشق فیلم‌های نولان و تارکوفسکی 🎬',
-      totalWatched: 74,
-      favoriteGenre: 'علمی‌تخیلی',
-      followersCount: 15,
-      followingCount: 8,
-    );
-    _mockProfiles['u_reza'] = const PublicProfile(
-      userId: 'u_reza',
-      username: 'reza_film',
-      bio: 'شیفته سینمای کلاسیک، فیلم‌های نوآر و تاریخ سینما 🍿',
-      totalWatched: 112,
-      favoriteGenre: 'درام',
-      followersCount: 26,
-      followingCount: 14,
-    );
-    _mockProfiles['u_maryam'] = const PublicProfile(
-      userId: 'u_maryam',
-      username: 'maryam_cinema',
-      bio: 'نویسنده و تماشاگر پرشور فیلم‌های مستقل و بین‌المللی 🎥',
-      totalWatched: 58,
-      favoriteGenre: 'انیمیشن',
-      followersCount: 19,
-      followingCount: 11,
-    );
   }
 
   Future<Result<T>> _guard<T>(Future<T> Function() action) async {
@@ -150,34 +110,10 @@ class SupabaseSocialRepository implements SocialRepository {
         }
       }
 
-      // 1. Check local database for registered users
-      final db = _db;
-      if (db != null) {
-        final row = await (db.select(db.users)..where(
-          (t) => t.id.equals(userId) | t.username.equals(userId),
-        )).getSingleOrNull();
+      // Accounts live in Supabase Auth; the local table is a leftover of
+      // the device-only era and must not resurrect deleted users.
 
-        if (row != null) {
-          final watchedCount = await (db.select(db.watchStatuses)..where(
-            (t) => t.userId.equals(row.id) & t.status.equalsValue(WatchStatus.watched),
-          )).get().then((list) => list.length);
-
-          final followers = _mockFollows.where((f) => f.endsWith(':${row.id}')).length;
-          final following = _mockFollows.where((f) => f.startsWith('${row.id}:')).length;
-
-          return PublicProfile(
-            userId: row.id,
-            username: row.username,
-            bio: row.bio ?? '${row.firstName} ${row.lastName}'.trim(),
-            avatarUrl: row.avatarPath,
-            totalWatched: watchedCount,
-            followersCount: followers,
-            followingCount: following,
-          );
-        }
-      }
-
-      // 2. Check mock/seed profiles by exact ID
+      // Mock profiles, for the offline/test path only.
       final byId = _mockProfiles[userId];
       if (byId != null) {
         final followers = _mockFollows.where((f) => f.endsWith(':${byId.userId}')).length;
@@ -212,39 +148,11 @@ class SupabaseSocialRepository implements SocialRepository {
       final q = query.trim().toLowerCase();
       final results = <String, PublicProfile>{};
 
-      // 1. Registered users in local database
-      final db = _db;
-      if (db != null) {
-        final rows = await (db.select(db.users)..where(
-          (t) =>
-              q.isEmpty
-                  ? const Constant(true)
-                  : (t.username.like('%$q%') |
-                     t.firstName.like('%$q%') |
-                     t.lastName.like('%$q%')),
-        )).get();
+      // Only Supabase knows who exists. Reading the local account table
+      // here is what kept showing users after the database was emptied:
+      // those rows are this phone's own history, not other people.
 
-        for (final row in rows) {
-          final watchedCount = await (db.select(db.watchStatuses)..where(
-            (t) => t.userId.equals(row.id) & t.status.equalsValue(WatchStatus.watched),
-          )).get().then((list) => list.length);
-
-          final followers = _mockFollows.where((f) => f.endsWith(':${row.id}')).length;
-          final following = _mockFollows.where((f) => f.startsWith('${row.id}:')).length;
-
-          results[row.id] = PublicProfile(
-            userId: row.id,
-            username: row.username,
-            bio: row.bio ?? '${row.firstName} ${row.lastName}'.trim(),
-            avatarUrl: row.avatarPath,
-            totalWatched: watchedCount,
-            followersCount: followers,
-            followingCount: following,
-          );
-        }
-      }
-
-      // 2. In-memory / seed profiles
+      // In-memory profiles, for the offline/test path only.
       for (final p in _mockProfiles.values) {
         if (q.isEmpty ||
             p.username.toLowerCase().contains(q) ||
@@ -303,23 +211,45 @@ class SupabaseSocialRepository implements SocialRepository {
     });
   }
 
+  /// Resolves an id-or-username to the canonical `public_profiles.user_id`.
+  ///
+  /// The follow operations only need the id, but [getProfile] also runs two
+  /// follower-count queries and can fall through to the local database. Doing
+  /// that for *both* users on every follow, unfollow and `isFollowing` check
+  /// put dozens of sequential round trips behind one tap of the follow button,
+  /// which is what made it feel like the button had not registered the tap.
+  Future<String> _resolveUserId(String idOrUsername) async {
+    final client = _client;
+    if (client != null) {
+      final byId = await client
+          .from(SupabaseTables.publicProfiles)
+          .select('user_id')
+          .eq('user_id', idOrUsername)
+          .maybeSingle();
+      if (byId != null) return byId['user_id'] as String;
+
+      final byUsername = await client
+          .from(SupabaseTables.publicProfiles)
+          .select('user_id')
+          .ilike('username', idOrUsername)
+          .maybeSingle();
+      if (byUsername != null) return byUsername['user_id'] as String;
+    }
+
+    // Nothing in Supabase — fall back to the full lookup, which also knows
+    // about locally registered users and the seeded demo profiles.
+    final profile = await getProfile(idOrUsername);
+    return profile.valueOrNull?.userId ?? idOrUsername;
+  }
+
   @override
   Future<Result<void>> followUser({
     required String followerId,
     required String followedId,
   }) {
     return _guard(() async {
-      var resolvedFollowedId = followedId;
-      final prof = await getProfile(followedId);
-      if (prof.isOk) {
-        resolvedFollowedId = prof.valueOrNull!.userId;
-      }
-
-      var resolvedFollowerId = followerId;
-      final fProf = await getProfile(followerId);
-      if (fProf.isOk) {
-        resolvedFollowerId = fProf.valueOrNull!.userId;
-      }
+      final resolvedFollowedId = await _resolveUserId(followedId);
+      final resolvedFollowerId = await _resolveUserId(followerId);
 
       if (resolvedFollowerId == resolvedFollowedId) {
         throw const ValidationFailure('نمی‌توانید خودتان را دنبال کنید');
@@ -344,17 +274,8 @@ class SupabaseSocialRepository implements SocialRepository {
     required String followedId,
   }) {
     return _guard(() async {
-      var resolvedFollowedId = followedId;
-      final prof = await getProfile(followedId);
-      if (prof.isOk) {
-        resolvedFollowedId = prof.valueOrNull!.userId;
-      }
-
-      var resolvedFollowerId = followerId;
-      final fProf = await getProfile(followerId);
-      if (fProf.isOk) {
-        resolvedFollowerId = fProf.valueOrNull!.userId;
-      }
+      final resolvedFollowedId = await _resolveUserId(followedId);
+      final resolvedFollowerId = await _resolveUserId(followerId);
 
       final client = _client;
       if (client != null) {
@@ -374,17 +295,8 @@ class SupabaseSocialRepository implements SocialRepository {
     required String followedId,
   }) {
     return _guard(() async {
-      var resolvedFollowedId = followedId;
-      final prof = await getProfile(followedId);
-      if (prof.isOk) {
-        resolvedFollowedId = prof.valueOrNull!.userId;
-      }
-
-      var resolvedFollowerId = followerId;
-      final fProf = await getProfile(followerId);
-      if (fProf.isOk) {
-        resolvedFollowerId = fProf.valueOrNull!.userId;
-      }
+      final resolvedFollowedId = await _resolveUserId(followedId);
+      final resolvedFollowerId = await _resolveUserId(followerId);
 
       final client = _client;
       if (client != null) {
@@ -517,6 +429,30 @@ class SupabaseSocialRepository implements SocialRepository {
       } else {
         return _mockLists.values
             .where((l) => l.ownerId == resolvedUserId && l.isPublic)
+            .toList();
+      }
+    });
+  }
+
+  @override
+  Future<Result<List<String>>> getFollowerUserIds(String userId) {
+    return _guard(() async {
+      final resolvedId = await _resolveUserId(userId);
+
+      final client = _client;
+      if (client != null) {
+        final res = await client
+            .from(SupabaseTables.userFollows)
+            .select('follower_id')
+            .eq('followed_id', resolvedId);
+        return (res as List)
+            .cast<Map<String, dynamic>>()
+            .map((r) => r['follower_id'] as String)
+            .toList();
+      } else {
+        return _mockFollows
+            .where((key) => key.endsWith(':$resolvedId'))
+            .map((key) => key.split(':')[0])
             .toList();
       }
     });
@@ -774,15 +710,21 @@ class SupabaseSocialRepository implements SocialRepository {
     required String userId,
   }) {
     return _guard(() async {
+      // `addCollaborator` stores the *resolved* profile id, so removal has to
+      // resolve too or a caller passing a username — or a local id that
+      // differs from the profile's — would delete nothing and silently
+      // "succeed".
+      final resolvedUserId = await _resolveUserId(userId);
+
       final client = _client;
       if (client != null) {
         await client
             .from(SupabaseTables.listCollaborators)
             .delete()
-            .match({'list_id': listId, 'user_id': userId});
+            .match({'list_id': listId, 'user_id': resolvedUserId});
       } else {
         final list = _mockCollaborators[listId];
-        list?.removeWhere((c) => c.userId == userId);
+        list?.removeWhere((c) => c.userId == resolvedUserId);
         final existingList = _mockLists[listId];
         if (existingList != null) {
           final updatedList = existingList.copyWith(
@@ -1005,7 +947,12 @@ class SupabaseSocialRepository implements SocialRepository {
       if (client != null) {
         final res = await client
             .from(SupabaseTables.socialActivities)
-            .select()
+            // Named columns rather than `*`: the unused ones include poster
+            // and review text, and this table is mostly base64 avatars.
+            .select(
+              'activity_id,user_id,movie_title,username,user_avatar,'
+              'review_text,created_at',
+            )
             .eq('action_type', 'collab_request')
             .eq('movie_title', listId)
             .eq('review_text', 'pending');
@@ -1044,11 +991,15 @@ class SupabaseSocialRepository implements SocialRepository {
         final stream = client
             .from(SupabaseTables.socialActivities)
             .stream(primaryKey: ['activity_id'])
+            // `movie_title` carries the list id for a collab_request. Without
+            // this the stream fetched every activity row in the database —
+            // about a megabyte, mostly other people's avatars — every time a
+            // shared list was opened, which is what left the page shimmering.
+            .eq('movie_title', listId)
             .map((rows) {
           final filtered = rows
               .where((r) =>
                   r['action_type'] == 'collab_request' &&
-                  r['movie_title'] == listId &&
                   r['review_text'] == 'pending')
               .map((m) => CollaborationRequest(
                     requestId: m['activity_id'] as String? ?? '',
@@ -1172,13 +1123,28 @@ class SupabaseSocialRepository implements SocialRepository {
             .match({'list_id': listId, 'media_id': mediaId});
 
         try {
-          final countRes = await client
+          // The cover has to be recomputed, not just the count. It was set to
+          // whichever title was added last, so removing that title left the
+          // list showing a poster for something no longer in it.
+          final remaining = await client
               .from(SupabaseTables.customListItems)
-              .count(CountOption.exact)
-              .eq('list_id', listId);
+              .select('poster_path')
+              .eq('list_id', listId)
+              .order('added_at', ascending: false);
+
+          final rows = (remaining as List).cast<Map<String, dynamic>>();
+          final cover = rows
+              .map((r) => r['poster_path'] as String?)
+              .firstWhere(
+                (path) => path != null && path.trim().isNotEmpty,
+                orElse: () => null,
+              );
 
           await client.from(SupabaseTables.customLists).update({
-            'item_count': countRes,
+            'item_count': rows.length,
+            // Null when nothing is left, so an emptied list falls back to its
+            // placeholder rather than keeping the last poster.
+            'cover_path': cover,
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           }).eq('list_id', listId);
         } catch (_) {}
@@ -1189,7 +1155,22 @@ class SupabaseSocialRepository implements SocialRepository {
       items?.removeWhere((i) => i.mediaId == mediaId);
       final list = _mockLists[listId];
       if (list != null) {
-        final updated = list.copyWith(itemCount: items?.length ?? 0);
+        // Built rather than copied: `copyWith` reads a null as "leave it
+        // alone", so it cannot clear the cover of a list that is now empty.
+        final updated = CustomList(
+          listId: list.listId,
+          ownerId: list.ownerId,
+          title: list.title,
+          description: list.description,
+          isPublic: list.isPublic,
+          coverPath: (items == null || items.isEmpty)
+              ? null
+              : items.first.posterPath,
+          itemCount: items?.length ?? 0,
+          collaboratorCount: list.collaboratorCount,
+          createdAt: list.createdAt,
+          updatedAt: DateTime.now(),
+        );
         _mockLists[listId] = updated;
         _listStreamController.add(updated);
       }
@@ -1293,6 +1274,22 @@ class SupabaseSocialRepository implements SocialRepository {
   }
 
   @override
+  Future<Result<void>> deleteActivity(String activityId) {
+    return _guard(() async {
+      final client = _client;
+      if (client != null) {
+        await client
+            .from(SupabaseTables.socialActivities)
+            .delete()
+            .eq('activity_id', activityId);
+      } else {
+        _mockActivities.removeWhere((a) => a.activityId == activityId);
+        _activityStreamController.add(_mockActivities);
+      }
+    });
+  }
+
+  @override
   Future<Result<List<SocialActivity>>> getActivityFeed({
     required List<String> userIds,
     int limit = 30,
@@ -1306,6 +1303,8 @@ class SupabaseSocialRepository implements SocialRepository {
             .from(SupabaseTables.socialActivities)
             .select()
             .neq('action_type', 'collab_request')
+            // A diary entry is private to its author's profile.
+            .neq('action_type', 'diary')
             .inFilter('user_id', userIds)
             .order('created_at', ascending: false)
             .limit(limit);
@@ -1316,7 +1315,9 @@ class SupabaseSocialRepository implements SocialRepository {
             .toList();
       } else {
         return _mockActivities
-            .where((a) => userIds.contains(a.userId))
+            .where((a) =>
+                a.actionType != SocialActionType.diary &&
+                userIds.contains(a.userId))
             .take(limit)
             .toList();
       }
@@ -1344,6 +1345,7 @@ class SupabaseSocialRepository implements SocialRepository {
             .map(SupabaseMapper.activityFromMap)
             .toList();
       } else {
+        // The profile *does* want diary entries, so this one keeps them.
         return _mockActivities
             .where((a) => a.userId == userId)
             .take(limit)
@@ -1369,13 +1371,18 @@ class SupabaseSocialRepository implements SocialRepository {
             (rows) => rows
                 .where((r) =>
                     r['action_type'] != 'collab_request' &&
+                    r['action_type'] != 'diary' &&
                     userIds.contains(r['user_id'] as String?))
                 .map(SupabaseMapper.activityFromMap)
                 .toList(),
           );
     } else {
       return _activityStreamController.stream.map(
-        (list) => list.where((a) => userIds.contains(a.userId)).toList(),
+        (list) => list
+            .where((a) =>
+                a.actionType != SocialActionType.diary &&
+                userIds.contains(a.userId))
+            .toList(),
       );
     }
   }

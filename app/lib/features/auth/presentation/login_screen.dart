@@ -20,7 +20,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _email = TextEditingController();
+  final _username = TextEditingController();
   final _password = TextEditingController();
 
   bool _obscure = true;
@@ -29,7 +29,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   void dispose() {
-    _email.dispose();
+    _username.dispose();
     _password.dispose();
     super.dispose();
   }
@@ -44,7 +44,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     final result = await ref
         .read(authRepositoryProvider)
-        .login(email: _email.text, password: _password.text);
+        .login(username: _username.text, password: _password.text);
 
     if (!mounted) return;
 
@@ -77,15 +77,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: AppSpacing.xl),
                 TextFormField(
-                  controller: _email,
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.email],
+                  controller: _username,
+                  autofillHints: const [AutofillHints.username],
                   decoration: const InputDecoration(
-                    labelText: 'ایمیل',
-                    prefixIcon: Icon(Icons.mail_outline),
+                    labelText: 'شناسه',
+                    prefixIcon: Icon(Icons.alternate_email),
                   ),
                   validator: (value) => (value == null || value.trim().isEmpty)
-                      ? 'ایمیل را وارد کنید'
+                      ? 'شناسه را وارد کنید'
                       : null,
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -127,11 +126,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text('ورود'),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                TextButton(
-                  onPressed: () => context.push(AppRoutes.forgotPassword),
-                  child: const Text('رمز عبور را فراموش کرده‌ام'),
                 ),
                 const Divider(height: AppSpacing.xxl),
                 OutlinedButton(

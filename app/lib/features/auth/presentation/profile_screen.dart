@@ -8,9 +8,11 @@ import 'package:go_router/go_router.dart';
 import '../../../core/di/providers.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/l10n/persian_numbers.dart';
+import '../../../core/l10n/tmdb_localization.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/avatar_picker.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../domain/entities/social/public_profile.dart';
 import '../../../domain/repositories/auth_repository.dart';
 import '../../../router/app_router.dart';
 import '../../social/presentation/social_providers.dart';
@@ -123,22 +125,11 @@ class _Profile extends ConsumerWidget {
         ListTile(
           leading: const Icon(Icons.public_rounded),
           title: const Text('پروفایل عمومی من'),
-          subtitle: Text('شناسه: ${user.id} (@${user.username})'),
+          // The internal `user_…` key means nothing to anyone; the username is
+          // the identifier people actually share.
+          subtitle: Text('شناسه: @${user.username}'),
           trailing: const Icon(Icons.chevron_left),
           onTap: () => context.push('/user/${user.id}'),
-        ),
-        ListTile(
-          leading: const Icon(Icons.person_search_rounded),
-          title: const Text('یافتن و دنبال کردن کاربران'),
-          subtitle: const Text('مشاهده پروفایل و فهرست‌ها با شناسه یا نام کاربری'),
-          trailing: const Icon(Icons.chevron_left),
-          onTap: () => _findUserDialog(context),
-        ),
-        ListTile(
-          leading: const Icon(Icons.dynamic_feed_rounded),
-          title: const Text('فعالیت‌های دوستان (Activity Feed)'),
-          trailing: const Icon(Icons.chevron_left),
-          onTap: () => context.push(AppRoutes.activityFeed),
         ),
         ListTile(
           leading: const Icon(Icons.bar_chart_rounded),
@@ -152,6 +143,7 @@ class _Profile extends ConsumerWidget {
           trailing: const Icon(Icons.chevron_left),
           onTap: () => _editProfile(context, ref),
         ),
+        _FavouriteGenresTile(userId: user.id),
         const _BiometricToggle(),
         ListTile(
           leading: Icon(Icons.logout, color: theme.colorScheme.error),
@@ -173,94 +165,232 @@ class _Profile extends ConsumerWidget {
   }
 
   Future<void> _editProfile(BuildContext context, WidgetRef ref) async {
-    final firstName = TextEditingController(text: user.firstName);
-    final lastName = TextEditingController(text: user.lastName);
-    final username = TextEditingController(text: user.username);
-    final bio = TextEditingController(text: user.bio ?? '');
-    var avatarPath = user.avatarPath;
-
-    final saved = await showDialog<bool>(
+    final saved = await showModalBottomSheet<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('ویرایش پروفایل'),
-          content: SingleChildScrollView(
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => _EditProfileSheet(user: user),
+    );
+
+    if (saved == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('پروفایل به‌روزرسانی شد.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+}
+
+/// FR-04 — editing the account.
+///
+/// A sheet with a real form rather than the old `AlertDialog`: four bare
+/// `TextField`s stacked with no spacing inside a dialog left the filled boxes
+/// touching each other, and the dialog's own width squeezed the labels. A
+/// widget also means the controllers are disposed at the right time instead
+/// of leaking with every open.
+class _EditProfileSheet extends ConsumerStatefulWidget {
+  const _EditProfileSheet({required this.user});
+
+  final AppUser user;
+
+  @override
+  ConsumerState<_EditProfileSheet> createState() => _EditProfileSheetState();
+}
+
+class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
+  late final _firstName = TextEditingController(text: widget.user.firstName);
+  late final _lastName = TextEditingController(text: widget.user.lastName);
+  late final _username = TextEditingController(text: widget.user.username);
+  late final _bio = TextEditingController(text: widget.user.bio ?? '');
+  final _formKey = GlobalKey<FormState>();
+
+  late String? _avatarPath = widget.user.avatarPath;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _firstName.dispose();
+    _lastName.dispose();
+    _username.dispose();
+    _bio.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() => _saving = true);
+
+    final result = await ref.read(authRepositoryProvider).updateProfile(
+          firstName: _firstName.text,
+          lastName: _lastName.text,
+          username: _username.text,
+          bio: _bio.text,
+          avatarPath: _avatarPath,
+          clearAvatar: _avatarPath == null && widget.user.avatarPath != null,
+        );
+
+    if (!mounted) return;
+
+    final failure = result.failureOrNull;
+    if (failure != null) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(failure.message),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    Navigator.pop(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          0,
+          AppSpacing.lg,
+          AppSpacing.sheetInset(context),
+        ),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                AvatarPicker(
-                  path: avatarPath,
-                  initial: user.firstName.characters.take(1).toString(),
-                  radius: 36,
-                  onChanged: (path) => setState(() => avatarPath = path),
+                Text(
+                  'ویرایش پروفایل',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                TextField(
-                  controller: firstName,
-                  decoration: const InputDecoration(labelText: 'نام'),
+                const SizedBox(height: AppSpacing.lg),
+                Center(
+                  child: AvatarPicker(
+                    path: _avatarPath,
+                    initial: widget.user.firstName.characters.take(1).toString(),
+                    radius: 44,
+                    onChanged: (path) => setState(() => _avatarPath = path),
+                  ),
                 ),
-                TextField(
-                  controller: lastName,
-                  decoration: const InputDecoration(labelText: 'نام خانوادگی'),
+                const SizedBox(height: AppSpacing.xl),
+                _Field(
+                  controller: _firstName,
+                  label: 'نام',
+                  icon: Icons.badge_outlined,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'نام را وارد کنید'
+                      : null,
                 ),
-                TextField(
-                  controller: username,
-                  decoration: const InputDecoration(labelText: 'نام کاربری'),
+                const SizedBox(height: AppSpacing.md),
+                _Field(
+                  controller: _lastName,
+                  label: 'نام خانوادگی',
+                  icon: Icons.badge_outlined,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'نام خانوادگی را وارد کنید'
+                      : null,
                 ),
-                TextField(
-                  controller: bio,
-                  maxLines: 2,
-                  decoration: const InputDecoration(labelText: 'توضیحات کوتاه'),
+                const SizedBox(height: AppSpacing.md),
+                _Field(
+                  controller: _username,
+                  label: 'شناسه (نام کاربری)',
+                  icon: Icons.alternate_email,
+                  helper: 'با همین شناسه وارد می‌شوید',
+                  validator: (v) => (v == null || v.trim().length < 3)
+                      ? 'شناسه باید حداقل ۳ نویسه باشد'
+                      : null,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _Field(
+                  controller: _bio,
+                  label: 'درباره من',
+                  icon: Icons.notes_outlined,
+                  maxLines: 3,
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed:
+                            _saving ? null : () => Navigator.pop(context, false),
+                        child: const Text(AppStrings.cancel),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _saving ? null : _save,
+                        child: _saving
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text(AppStrings.save),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text(AppStrings.cancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text(AppStrings.save),
-            ),
-          ],
         ),
       ),
-    );
-
-    if (saved != true || !context.mounted) return;
-
-    final result = await ref
-        .read(authRepositoryProvider)
-        .updateProfile(
-          firstName: firstName.text,
-          lastName: lastName.text,
-          username: username.text,
-          bio: bio.text,
-          avatarPath: avatarPath,
-          clearAvatar: avatarPath == null && user.avatarPath != null,
-        );
-
-    final failure = result.failureOrNull;
-    if (failure != null && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(failure.message)));
-    }
-  }
-
-  void _findUserDialog(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: false,
-      useSafeArea: true,
-      builder: (_) => const _FindUsersSheet(),
     );
   }
 }
 
+/// One labelled row of the edit form, so every field is spaced and decorated
+/// the same way.
+class _Field extends StatelessWidget {
+  const _Field({
+    required this.controller,
+    required this.label,
+    required this.icon,
+    this.helper,
+    this.maxLines = 1,
+    this.validator,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final IconData icon;
+  final String? helper;
+  final int maxLines;
+  final String? Function(String?)? validator;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      maxLines: maxLines,
+      validator: validator,
+      decoration: InputDecoration(
+        labelText: label,
+        helperText: helper,
+        prefixIcon: Icon(icon),
+        alignLabelWithHint: maxLines > 1,
+      ),
+    );
+  }
+}
 
 /// The three FR-01 counters, read live.
 ///
@@ -375,197 +505,174 @@ class _BiometricToggleState extends ConsumerState<_BiometricToggle> {
   }
 }
 
-class _FindUsersSheet extends ConsumerStatefulWidget {
-  const _FindUsersSheet();
+
+
+
+/// FR-04 — the genres the user says they like, shown on their public profile.
+///
+/// Kept out of the "edit profile" dialog because it writes somewhere else:
+/// names, avatar and bio live in the local account, whereas favourite genres
+/// are part of the public profile in Supabase.
+class _FavouriteGenresTile extends ConsumerWidget {
+  const _FavouriteGenresTile({required this.userId});
+
+  final String userId;
 
   @override
-  ConsumerState<_FindUsersSheet> createState() => _FindUsersSheetState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profile = ref.watch(publicProfileProvider(userId)).valueOrNull;
+    final chosen = profile?.favoriteGenres ?? const <String>[];
+
+    return ListTile(
+      leading: const Icon(Icons.category_outlined),
+      title: const Text('ژانرهای موردعلاقه'),
+      subtitle: Text(
+        chosen.isEmpty
+            ? 'هنوز ژانری انتخاب نکرده‌اید'
+            : chosen.join('، '),
+      ),
+      trailing: const Icon(Icons.chevron_left),
+      onTap: () => _edit(context, ref, chosen),
+    );
+  }
+
+  Future<void> _edit(
+    BuildContext context,
+    WidgetRef ref,
+    List<String> current,
+  ) async {
+    final chosen = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => _GenrePickerSheet(initial: current),
+    );
+
+    if (chosen == null || !context.mounted) return;
+
+    final res = await ref.read(socialActionsProvider).setFavouriteGenres(chosen);
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          res.isOk
+              ? 'ژانرهای موردعلاقه ذخیره شد.'
+              : (res.failureOrNull?.message ?? 'خطا در ذخیره ژانرها'),
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 }
 
-class _FindUsersSheetState extends ConsumerState<_FindUsersSheet> {
-  final _searchController = TextEditingController();
-  String _query = '';
+class _GenrePickerSheet extends StatefulWidget {
+  const _GenrePickerSheet({required this.initial});
+
+  final List<String> initial;
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+  State<_GenrePickerSheet> createState() => _GenrePickerSheetState();
+}
+
+class _GenrePickerSheetState extends State<_GenrePickerSheet> {
+  late final Set<String> _selected = widget.initial.toSet();
+
+  static const _max = PublicProfile.maxFavouriteGenres;
+
+  void _toggle(String genre) {
+    setState(() {
+      if (_selected.contains(genre)) {
+        _selected.remove(genre);
+      } else if (_selected.length < _max) {
+        _selected.add(genre);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final usersAsync = ref.watch(userSearchProvider(_query));
+    final full = _selected.length >= _max;
 
-    return DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (context, scrollController) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: Column(
-            children: [
-              const SizedBox(height: AppSpacing.sm),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                child: Row(
-                  children: [
-                    const Icon(Icons.people_alt_outlined),
-                    const SizedBox(width: AppSpacing.sm),
-                    Text(
-                      'یافتن و دنبال کردن کاربران',
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'ژانرهای موردعلاقه',
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
+                  ),
+                  Text(
+                    '${_selected.length.toPersian} از ${_max.toPersian}',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg,
+                ),
+                child: Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.xs,
+                  children: [
+                    for (final genre in TmdbLocalization.selectableGenres)
+                      FilterChip(
+                        label: Text(genre),
+                        selected: _selected.contains(genre),
+                        // At the cap, only the already-chosen stay tappable,
+                        // so the limit is visible rather than a silent no-op.
+                        onSelected: full && !_selected.contains(genre)
+                            ? null
+                            : (_) => _toggle(genre),
+                      ),
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-                child: TextField(
-                  controller: _searchController,
-                  autofocus: false,
-                  decoration: InputDecoration(
-                    hintText: 'جستجوی نام کاربری یا شناسه کاربر...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _query.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _query = '');
-                            },
-                          )
-                        : null,
+            ),
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text(AppStrings.cancel),
+                    ),
                   ),
-                  onChanged: (val) => setState(() => _query = val.trim()),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Expanded(
-                child: switch (usersAsync) {
-                  AsyncData(:final value) =>
-                    value.isEmpty
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(AppSpacing.xl),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.search_off_outlined,
-                                    size: 48,
-                                    color: theme.colorScheme.outline,
-                                  ),
-                                  const SizedBox(height: AppSpacing.md),
-                                  Text(
-                                    _query.isEmpty
-                                        ? 'هیچ کاربری در سیستم ثبت نشده است'
-                                        : 'کاربری با عنوان «$_query» یافت نشد',
-                                    textAlign: TextAlign.center,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  if (_query.isNotEmpty) ...[
-                                    const SizedBox(height: AppSpacing.md),
-                                    OutlinedButton.icon(
-                                      onPressed: () {
-                                        Navigator.pop(context);
-                                        unawaited(
-                                          context.push('/user/$_query'),
-                                        );
-                                      },
-                                      icon: const Icon(Icons.open_in_new),
-                                      label: const Text('بررسی مستقیم شناسه'),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          )
-                        : ListView.separated(
-                            controller: scrollController,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.md,
-                              vertical: AppSpacing.xs,
-                            ),
-                            itemCount: value.length,
-                            separatorBuilder: (context, index) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final profile = value[index];
-                              return ListTile(
-                                leading: UserAvatar(
-                                  path: (profile.avatarUrl != null &&
-                                          profile.avatarUrl!.trim().isNotEmpty &&
-                                          profile.avatarUrl!.trim() != 'null')
-                                      ? profile.avatarUrl!.trim()
-                                      : null,
-                                  initial: profile.username.trim().isNotEmpty
-                                      ? profile.username.trim().characters.first
-                                      : '؟',
-                                  radius: 20,
-                                ),
-                                title: Text(
-                                  profile.username,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  profile.bio ??
-                                      '${profile.totalWatched.toPersian} فیلم دیده',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                trailing: const Icon(Icons.chevron_left),
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  unawaited(
-                                    context.push('/user/${profile.userId}'),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                  AsyncError(:final error) => Center(
-                      child: Text(
-                        error.toString(),
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () =>
+                          Navigator.pop(context, _selected.toList()),
+                      child: const Text(AppStrings.save),
                     ),
-                  _ => const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(AppSpacing.xl),
-                        child: CircularProgressIndicator(),
-                      ),
-                    ),
-                },
+                  ),
+                ],
               ),
-            ],
-          ),
-        );
-      },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
-

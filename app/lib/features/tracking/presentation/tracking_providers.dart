@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/di/providers.dart';
@@ -178,8 +180,52 @@ class TrackingActions {
       await _repository.addToWatchlist(item, status);
     }
 
+    // Calling a series watched means every episode is watched, so record the
+    // episode marks too — otherwise FR-11's bar would still read part-way and
+    // the season screen would still show unticked episodes.
+    if (status == WatchStatus.watched && item.type.isSeries) {
+      await _markEveryEpisodeWatched(item.id);
+    }
+
     if (status == WatchStatus.watched && _ref != null) {
       _syncWatchedToCloud(item);
+    }
+  }
+
+  /// Ticks every aired episode of [seriesId], season by season.
+  ///
+  /// Only aired episodes are marked: the progress denominator is the aired
+  /// count (see `SeriesProgressMeta`), so marking future episodes as well
+  /// would not move the bar and would claim the user had seen something that
+  /// does not exist yet.
+  Future<void> _markEveryEpisodeWatched(int seriesId) async {
+    final ref = _ref;
+    if (ref == null) return;
+
+    final catalog = ref.read(catalogRepositoryProvider);
+
+    final seriesRes = await catalog.seriesDetails(seriesId);
+    final series = seriesRes.valueOrNull;
+    if (series == null) return;
+
+    for (final summary in series.seasons) {
+      // Specials sit outside the numbered run and are excluded from the aired
+      // count, so ticking them could push the bar past 100%.
+      if (summary.isSpecials) continue;
+
+      final seasonRes = await catalog.season(seriesId, summary.seasonNumber);
+      final episodes = seasonRes.valueOrNull?.episodes ?? const [];
+      final aired = episodes.where((e) => e.hasAired).toList();
+      if (aired.isEmpty) continue;
+
+      await _repository.setSeasonWatched(
+        seriesId,
+        summary.seasonNumber,
+        [for (final e in aired) e.id],
+        watched: true,
+        runtimes: {for (final e in aired) e.id: e.runtime ?? 0},
+        episodeNumbers: {for (final e in aired) e.id: e.episodeNumber},
+      );
     }
   }
 
@@ -193,10 +239,16 @@ class TrackingActions {
       if (socialRepo != null) {
         socialRepo.logActivity(
           SocialActivity(
-            activityId: 'watch_${user.id}_${item.id}',
+            activityId: SocialActivity.buildId(
+              prefix: 'watch',
+              userId: user.id,
+              mediaType: item.type,
+              mediaId: item.id,
+            ),
             userId: user.id,
             actionType: SocialActionType.watched,
             movieId: item.id,
+            mediaType: item.type,
             timestamp: DateTime.now(),
             movieTitle: item.title,
             moviePoster: item.posterPath,
@@ -206,27 +258,103 @@ class TrackingActions {
         );
       }
 
-      final supabase = _ref?.read(supabaseClientProvider);
-      if (supabase != null) {
-        supabase
-            .from('public_profiles')
-            .select('total_watched')
-            .eq('user_id', user.id)
-            .maybeSingle()
-            .then((row) {
-          final current = (row?['total_watched'] as num?)?.toInt() ?? 0;
-          supabase.from('public_profiles').update({
-            'total_watched': current + 1,
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          }).eq('user_id', user.id);
-        }).catchError((_) {});
-      }
+      unawaited(syncProfileStats());
+      _ref?.read(socialActivityRevisionProvider.notifier).state++;
     } catch (_) {}
   }
 
+  /// Publishes the local watch total onto the public profile.
+  ///
+  /// Writes the total outright rather than incrementing a counter: a
+  /// read-modify-write drifts the moment a write is lost or a title is
+  /// un-watched, and the number on a profile is supposed to match the list
+  /// behind it. Films and series are counted together (FR-19 keeps them
+  /// apart; the profile headline does not).
+  Future<void> syncProfileStats() async {
+    final ref = _ref;
+    if (ref == null) return;
+
+    try {
+      final user = ref.read(currentUserProvider).valueOrNull ??
+          ref.read(authRepositoryProvider).currentUserOrNull;
+      final supabase = ref.read(supabaseClientProvider);
+      if (user == null || supabase == null) return;
+
+      final stats = (await _repository.statistics()).valueOrNull;
+      if (stats == null) return;
+
+      // Deliberately does not touch `favorite_genre`: that is the user's own
+      // answer now, set on the profile screen, and inferring one from watch
+      // history would quietly overwrite what they chose.
+      await supabase.from('public_profiles').update({
+        'total_watched': stats.moviesWatched + stats.seriesWatched,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('user_id', user.id);
+    } catch (_) {
+      // Stats on a profile are not worth failing a watch over.
+    }
+  }
+
   /// FR-16.
-  Future<void> toggleFavourite(MediaSummary item, {required bool favourite}) =>
-      _repository.setFavourite(item, favourite: favourite);
+  Future<void> toggleFavourite(
+    MediaSummary item, {
+    required bool favourite,
+  }) async {
+    await _repository.setFavourite(item, favourite: favourite);
+    await _syncFavouriteToCloud(item, favourite: favourite);
+  }
+
+  /// Mirrors the heart onto the profile.
+  ///
+  /// The favourites table lives on this device, so without a copy in the
+  /// shared activity log nobody else could ever see what a user has
+  /// favourited — which is what a profile is for.
+  Future<void> _syncFavouriteToCloud(
+    MediaSummary item, {
+    required bool favourite,
+  }) async {
+    final ref = _ref;
+    if (ref == null) return;
+
+    try {
+      final user = ref.read(currentUserProvider).valueOrNull ??
+          ref.read(authRepositoryProvider).currentUserOrNull;
+      if (user == null) return;
+
+      final socialRepo = ref.read(socialRepositoryProvider);
+      final activityId = SocialActivity.buildId(
+        prefix: 'fav',
+        userId: user.id,
+        mediaType: item.type,
+        mediaId: item.id,
+      );
+
+      if (favourite) {
+        await socialRepo.logActivity(
+          SocialActivity(
+            activityId: activityId,
+            userId: user.id,
+            actionType: SocialActionType.favourited,
+            movieId: item.id,
+            mediaType: item.type,
+            timestamp: DateTime.now(),
+            movieTitle: item.title,
+            moviePoster: item.posterPath,
+            username: user.displayName,
+            userAvatar: user.avatarPath,
+          ),
+        );
+      } else {
+        await socialRepo.deleteActivity(activityId);
+      }
+
+      // The favourites section and the diary read the activity log, so they
+      // have to be told it moved.
+      ref.read(socialActivityRevisionProvider.notifier).state++;
+    } catch (_) {
+      // A profile that lags behind is not worth failing the heart over.
+    }
+  }
 
   /// FR-10 — a single episode.
   Future<void> setEpisodeWatched({
@@ -284,7 +412,7 @@ class TrackingActions {
 
     await _repository.rememberSeriesProgress(
       seriesId: series.id,
-      airedEpisodeCount: series.numberOfEpisodes,
+      airedEpisodeCount: series.airedEpisodeCount,
       hasFinishedAiring: series.hasFinishedAiring,
     );
   }

@@ -15,9 +15,6 @@ enum ProgressState {
   /// بنفش — every episode watched and nothing further will be released.
   finishedComplete,
 
-  /// قرمز — the user stopped watching without finishing.
-  stopped,
-
   /// زرد — unwatched episodes remain.
   partial,
 }
@@ -76,17 +73,10 @@ class WatchProgress {
   /// The FR-11 decision rule.
   ///
   /// Order matters. "Nothing watched" wins over everything, so an untouched
-  /// series reads as black rather than red. A user who explicitly stopped
-  /// takes priority over the partial state, because red is the more
-  /// informative signal. Only then does completeness split green from purple.
+  /// series reads as black. Only then does completeness split green from
+  /// purple.
   ProgressState get state {
     if (watchedEpisodes <= 0) return ProgressState.none;
-
-    if (userStatus != null && userStatus!.isStopped) {
-      // Red means "stopped without finishing". Someone who watched everything
-      // and then marked it paused is still complete, not abandoned.
-      if (!isComplete) return ProgressState.stopped;
-    }
 
     if (isComplete) {
       return hasFinishedAiring

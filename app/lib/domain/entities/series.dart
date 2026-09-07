@@ -35,6 +35,7 @@ class Series {
     this.cast = const [],
     this.crew = const [],
     this.seasons = const [],
+    this.lastEpisodeToAir,
     this.voteAverage,
     this.voteCount,
     this.imdbId,
@@ -68,6 +69,11 @@ class Series {
   /// demand (FR-08 + NFR-04) rather than all at once.
   final List<SeasonSummary> seasons;
 
+  /// The most recent episode TMDB reports as aired, or null when the series
+  /// has finished (nothing left to air) or has not started. Feeds
+  /// [airedEpisodeCount].
+  final AiredEpisodeMarker? lastEpisodeToAir;
+
   final double? voteAverage;
   final int? voteCount;
   final String? imdbId;
@@ -81,6 +87,52 @@ class Series {
   /// True when no further episodes will be released — drives the purple vs.
   /// green decision in FR-11.
   bool get hasFinishedAiring => status.isFinished;
+
+  /// Episodes that have actually been released.
+  ///
+  /// [numberOfEpisodes] counts the whole ordered run, announced-but-unaired
+  /// episodes included, so using it as the FR-11 denominator meant a viewer
+  /// caught up on a still-running series could never reach 100% — the bar
+  /// stopped short by however many episodes were yet to air.
+  ///
+  /// Derived from the last episode TMDB says has aired: every earlier season
+  /// in full, plus the part of the current season that has been shown.
+  /// Specials (season 0) are excluded, matching [SeasonSummary.isSpecials].
+  int get airedEpisodeCount {
+    // Nothing further is coming, so the whole run is out.
+    if (hasFinishedAiring) return numberOfEpisodes;
+
+    final last = lastEpisodeToAir;
+    if (last == null) return 0; // announced, nothing released yet
+
+    if (seasons.isEmpty) {
+      // No per-season breakdown to add up; the current season's progress is
+      // the most honest figure available.
+      return last.episodeNumber;
+    }
+
+    var aired = 0;
+    for (final season in seasons) {
+      if (season.isSpecials) continue;
+      if (season.seasonNumber < last.seasonNumber) {
+        aired += season.episodeCount;
+      } else if (season.seasonNumber == last.seasonNumber) {
+        aired += last.episodeNumber;
+      }
+    }
+    return aired;
+  }
+}
+
+/// Where a still-running series has got to, from TMDB's `last_episode_to_air`.
+class AiredEpisodeMarker {
+  const AiredEpisodeMarker({
+    required this.seasonNumber,
+    required this.episodeNumber,
+  });
+
+  final int seasonNumber;
+  final int episodeNumber;
 }
 
 /// A season without its episodes.

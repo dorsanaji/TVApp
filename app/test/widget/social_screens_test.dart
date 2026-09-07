@@ -13,6 +13,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/fake_auth.dart';
+
 void main() {
   const testProfile = PublicProfile(
     userId: 'u_sara',
@@ -41,6 +43,7 @@ void main() {
   }) {
     return ProviderScope(
       overrides: [
+          ...authOverrides(),
         socialRepositoryProvider
             .overrideWithValue(SupabaseSocialRepository(client: null)),
         ...overrides,
@@ -70,6 +73,7 @@ void main() {
       await tester.pumpWidget(
         createSubject(
           overrides: [
+          ...authOverrides(),
             publicProfileProvider('u_sara')
                 .overrideWith((ref) => Future.value(testProfile)),
             userPublicListsProvider('u_sara')
@@ -102,6 +106,7 @@ void main() {
       await tester.pumpWidget(
         createSubject(
           overrides: [
+          ...authOverrides(),
             collaborativeListStreamProvider('list_123')
                 .overrideWith((ref) => Stream.value(testList)),
             listCollaboratorsStreamProvider('list_123').overrideWith(
@@ -137,7 +142,7 @@ void main() {
     });
   });
 
-  group('Task 3.3 · ActivityFeedScreen Tests', () {
+  group('Task 3.3 · Activity feed tests', () {
     testWidgets('renders recent activities with Persian summary and Jalali time', (tester) async {
       final activity = SocialActivity(
         activityId: 'act_100',
@@ -154,17 +159,16 @@ void main() {
       await tester.pumpWidget(
         createSubject(
           overrides: [
+          ...authOverrides(),
             activityFeedStreamProvider
                 .overrideWith((ref) => Stream.value([activity])),
           ],
-          child: const ActivityFeedScreen(),
+          child: const ActivityFeedView(),
         ),
       );
       await tester.pumpAndSettle();
 
-      // Feed AppBar
-      expect(find.text('فعالیت‌های دوستان (Activity Feed)'), findsOneWidget);
-
+      // The app bar belongs to the Social tab now, not to the feed itself.
       // Activity sentence
       expect(
         find.text('سارا فیلم «باشگاه مبارزه» را نقد کرد و به آن 5.0 ستاره داد'),

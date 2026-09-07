@@ -58,8 +58,10 @@ class RatingSection extends ConsumerWidget {
               // undo a rating without a separate control.
               if (stars == myRating) {
                 await repository.clearRating(item.id, item.type);
+                ref.read(reviewRevisionProvider.notifier).state++;
               } else {
                 await repository.rate(item.id, item.type, stars);
+                ref.read(reviewRevisionProvider.notifier).state++;
               }
             },
           ),

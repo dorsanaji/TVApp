@@ -292,6 +292,13 @@ abstract final class TmdbMapper {
       cast: cast(credits),
       crew: crew(credits),
       seasons: _objects(json['seasons']).map(seasonSummary).toList(),
+      lastEpisodeToAir: switch (json['last_episode_to_air']) {
+        final Map<String, dynamic> last => AiredEpisodeMarker(
+          seasonNumber: _int(last['season_number']) ?? 0,
+          episodeNumber: _int(last['episode_number']) ?? 0,
+        ),
+        _ => null,
+      },
       voteAverage: _double(json['vote_average']),
       voteCount: _int(json['vote_count']),
       imdbId: _str(external?['imdb_id']),

@@ -93,9 +93,6 @@ class TrackingBar extends ConsumerWidget {
     WatchStatus.planToWatch => Icons.schedule,
     WatchStatus.watching => Icons.play_arrow_rounded,
     WatchStatus.watched => Icons.check_circle,
-    WatchStatus.paused => Icons.pause_circle_outline,
-    WatchStatus.dropped => Icons.cancel_outlined,
-    WatchStatus.favourite => Icons.favorite,
   };
 
   Future<void> _pickStatus(
@@ -108,7 +105,7 @@ class TrackingBar extends ConsumerWidget {
     final chosen = await showModalBottomSheet<_StatusChoice>(
       context: context,
       showDragHandle: true,
-      // Seven rows plus a divider and the drag handle can exceed the default
+      // The rows plus a divider and the drag handle can exceed the default
       // sheet height once a device's navigation bar and font scale are taken
       // into account — it overflowed by 36px on a real phone, hiding the
       // "clear status" row entirely. Scroll control plus a height cap lets the
@@ -123,7 +120,7 @@ class TrackingBar extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (final status in WatchStatus.values)
+                for (final status in WatchStatus.availableFor(item.type))
                   ListTile(
                     leading: Icon(_iconFor(status)),
                     title: Text(status.label),

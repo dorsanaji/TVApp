@@ -18,22 +18,22 @@ import '../../../domain/entities/social/social_activity.dart';
 import '../../../router/app_router.dart';
 import 'social_providers.dart';
 
-/// Task 3.3: ActivityFeedScreen.
+/// Task 3.3: the activity feed.
 ///
-/// Real-time Letterboxd-style activity feed displaying recent watches,
-/// reviews, and list additions from followed users, with Jalali relative timestamps.
-class ActivityFeedScreen extends ConsumerWidget {
-  const ActivityFeedScreen({super.key});
+/// Real-time Letterboxd-style feed of recent watches, reviews and list
+/// additions by the people the signed-in user follows, with Jalali relative
+/// timestamps.
+///
+/// A bare view rather than a screen: it is a tab of `SocialScreen`, which
+/// supplies the app bar.
+class ActivityFeedView extends ConsumerWidget {
+  const ActivityFeedView({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(activityFeedStreamProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('فعالیت‌های دوستان (Activity Feed)'),
-      ),
-      body: switch (feedAsync) {
+    return switch (feedAsync) {
         AsyncData(:final value) => value.isEmpty
             ? const EmptyState(
                 icon: Icons.dynamic_feed_outlined,
@@ -58,13 +58,12 @@ class ActivityFeedScreen extends ConsumerWidget {
                       _ActivityCard(activity: value[index]),
                 ),
               ),
-        AsyncError(:final error) => ErrorView(
-            failure: error is Failure ? error : ErrorMapper.fromUnknown(error),
-            onRetry: () => ref.invalidate(activityFeedStreamProvider),
-          ),
-        _ => LoadingShimmer.listRows(),
-      },
-    );
+      AsyncError(:final error) => ErrorView(
+          failure: error is Failure ? error : ErrorMapper.fromUnknown(error),
+          onRetry: () => ref.invalidate(activityFeedStreamProvider),
+        ),
+      _ => LoadingShimmer.listRows(),
+    };
   }
 }
 
@@ -77,9 +76,14 @@ class _ActivityCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // A follow is about a person, not a title — there is no poster, no
+    // rating and nothing to open. Rendering the media card for one produced
+    // a placeholder that led to "film not found".
+    final isAboutATitle = activity.actionType != SocialActionType.followed;
+
     final summary = MediaSummary(
       id: activity.movieId,
-      type: MediaType.movie,
+      type: activity.mediaType ?? MediaType.movie,
       title: activity.movieTitle ?? 'فیلم',
       posterPath: activity.moviePoster,
     );
@@ -157,6 +161,7 @@ class _ActivityCard extends StatelessWidget {
                 height: 1.5,
               ),
             ),
+            if (isAboutATitle) ...[
             const SizedBox(height: AppSpacing.sm),
 
             // ── 3. Movie Media Card & Rating / Review ─────────────────
@@ -255,6 +260,7 @@ class _ActivityCard extends StatelessWidget {
                 ),
               ),
             ),
+            ],
           ],
         ),
       ),
@@ -265,5 +271,10 @@ class _ActivityCard extends StatelessWidget {
     SocialActionType.reviewed => Icons.rate_review_outlined,
     SocialActionType.watched => Icons.check_circle_outline,
     SocialActionType.addedToList => Icons.playlist_add_check,
+    SocialActionType.favourited => Icons.favorite,
+    SocialActionType.followed => Icons.person_add_alt_1_outlined,
+    // Never reaches the feed — diary entries are filtered out upstream — but
+    // the switch has to be total.
+    SocialActionType.diary => Icons.menu_book_outlined,
   };
 }

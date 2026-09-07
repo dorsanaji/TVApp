@@ -4,7 +4,6 @@ import 'package:cinetrack/data/repositories/local_auth_repository.dart';
 import 'package:cinetrack/data/repositories/local_list_repository.dart';
 import 'package:cinetrack/data/repositories/local_review_repository.dart';
 import 'package:cinetrack/data/repositories/local_tracking_repository.dart';
-import 'package:cinetrack/data/services/email_sender.dart';
 import 'package:cinetrack/domain/entities/enums.dart';
 import 'package:cinetrack/domain/entities/media_summary.dart';
 import 'package:cinetrack/domain/repositories/tracking_repository.dart';
@@ -45,7 +44,6 @@ void main() {
     auth = LocalAuthRepository(
       db: db,
       storage: const FlutterSecureStorage(),
-      emailSender: DebugEmailSender(),
     );
     tracking = LocalTrackingRepository(db, auth);
     lists = LocalListRepository(db, auth);
@@ -64,7 +62,6 @@ void main() {
       firstName: username,
       lastName: 'تست',
       username: username,
-      email: '$username@example.com',
       password: 'correct-horse',
     );
     expect(result.isOk, isTrue, reason: '${result.failureOrNull}');
@@ -118,7 +115,7 @@ void main() {
 
       // Back to alice — isolation must cut both ways, and nothing may be lost.
       await auth.logout();
-      await auth.login(email: 'alice@example.com', password: 'correct-horse');
+      await auth.login(username: 'alice', password: 'correct-horse');
 
       final aliceItems = (await tracking.watchlist(
         WatchlistSection.watched,
@@ -172,7 +169,7 @@ void main() {
 
     // Counters are derived on read, so re-reading the user refreshes them.
     await auth.logout();
-    await auth.login(email: 'alice@example.com', password: 'correct-horse');
+    await auth.login(username: 'alice', password: 'correct-horse');
     expect(auth.currentUserOrNull!.moviesWatchedCount, 1);
     expect(auth.currentUserOrNull!.favouritesCount, 1);
 

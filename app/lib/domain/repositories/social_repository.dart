@@ -41,6 +41,9 @@ abstract interface class SocialRepository {
   /// Returns the list of user IDs that [userId] follows.
   Future<Result<List<String>>> getFollowedUserIds(String userId);
 
+  /// The other direction: who follows [userId].
+  Future<Result<List<String>>> getFollowerUserIds(String userId);
+
   /// Searches for users by username, display name, or returns suggested users when query is empty.
   Future<Result<List<PublicProfile>>> searchUsers(String query);
 
@@ -164,6 +167,10 @@ abstract interface class SocialRepository {
 
   /// Logs a new social activity (e.g. reviewed, added_to_list, watched).
   Future<Result<void>> logActivity(SocialActivity activity);
+
+  /// Removes a previously logged activity, for actions that can be undone —
+  /// un-favouriting, unfollowing.
+  Future<Result<void>> deleteActivity(String activityId);
 
   /// Fetches recent activities from users followed by [userIds].
   Future<Result<List<SocialActivity>>> getActivityFeed({

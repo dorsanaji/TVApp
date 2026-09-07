@@ -47,6 +47,13 @@ class ListsScreen extends ConsumerWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text(AppStrings.navLists),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.vpn_key_outlined),
+              tooltip: 'پیوستن با کد دعوت',
+              onPressed: () => _showJoinByCodeDialog(context, ref),
+            ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(
@@ -67,6 +74,102 @@ class ListsScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  /// Entry point for someone who has been handed an invitation code.
+  ///
+  /// A private list cannot be discovered — that is the point of it — so a
+  /// code is the only way in, and it has to be reachable without already
+  /// being able to see the list.
+  Future<void> _showJoinByCodeDialog(BuildContext context, WidgetRef ref) async {
+    final code = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => const _JoinByCodeDialog(),
+    );
+
+    if (code == null || code.trim().isEmpty || !context.mounted) return;
+
+    final res = await ref.read(socialActionsProvider).joinListByCode(code);
+    if (!context.mounted) return;
+
+    final list = res.valueOrNull;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          list != null
+              ? 'به فهرست «${list.title}» پیوستید.'
+              : (res.failureOrNull?.message ?? 'کد دعوت معتبر نیست'),
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    if (list != null) {
+      unawaited(context.push(AppRoutes.collaborativeList(list.listId)));
+    }
+  }
+}
+
+/// Asks for an invitation code.
+///
+/// A widget rather than an inline `AlertDialog` so it owns its controller and
+/// disposes it at the right moment. Disposing straight after `showDialog`
+/// returned tore the controller out from under a `TextField` that was still
+/// on screen for the dismiss animation, which threw
+/// "A TextEditingController was used after being disposed" — a red screen on
+/// simply backing out of the dialog.
+class _JoinByCodeDialog extends StatefulWidget {
+  const _JoinByCodeDialog();
+
+  @override
+  State<_JoinByCodeDialog> createState() => _JoinByCodeDialogState();
+}
+
+class _JoinByCodeDialogState extends State<_JoinByCodeDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('پیوستن با کد دعوت'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'کدی که سازنده فهرست خصوصی برایتان فرستاده است را وارد کنید.',
+          ),
+          const SizedBox(height: AppSpacing.md),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+              labelText: 'کد دعوت',
+              hintText: 'مثلاً ABCD-EFGH-IJ',
+            ),
+            onSubmitted: (value) => Navigator.pop(context, value),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('انصراف'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('پیوستن'),
+        ),
+      ],
     );
   }
 }
@@ -279,13 +382,18 @@ class _CollaborativeListsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(myCollaborativeListsProvider);
+    // With no lists the empty state already offers the one button that
+    // matters; a floating one on top of it is the same action twice.
+    final hasLists = (async.valueOrNull ?? const []).isNotEmpty;
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _createCollaborative(context, ref),
-        icon: const Icon(Icons.group_add_outlined),
-        label: const Text('فهرست اشتراکی جدید'),
-      ),
+      floatingActionButton: hasLists
+          ? FloatingActionButton.extended(
+              onPressed: () => _createCollaborative(context, ref),
+              icon: const Icon(Icons.group_add_outlined),
+              label: const Text('فهرست اشتراکی جدید'),
+            )
+          : null,
       body: switch (async) {
         AsyncData(:final value) =>
           value.isEmpty

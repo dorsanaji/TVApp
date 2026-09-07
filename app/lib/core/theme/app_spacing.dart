@@ -41,4 +41,16 @@ abstract final class AppSpacing {
   /// it again would double-pad.
   static double bottomInset(BuildContext context, {double extra = xxl}) =>
       MediaQuery.viewPaddingOf(context).bottom + extra;
+
+  /// Bottom padding for a modal sheet.
+  ///
+  /// Covers *both* insets, which is the part that is easy to get wrong: the
+  /// keyboard (`viewInsets`) and the gesture bar or navigation buttons
+  /// (`viewPadding`). Accounting only for the keyboard left the last row of a
+  /// sheet — the save button, usually — sitting underneath the system
+  /// navigation.
+  static double sheetInset(BuildContext context, {double extra = lg}) =>
+      MediaQuery.viewInsetsOf(context).bottom +
+      MediaQuery.viewPaddingOf(context).bottom +
+      extra;
 }

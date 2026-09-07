@@ -31,7 +31,6 @@ class WatchProgressBar extends StatelessWidget {
     ProgressState.none => AppColors.progressNone, // بی‌رنگ یا مشکی
     ProgressState.ongoingComplete => AppColors.progressOngoing, // سبز
     ProgressState.finishedComplete => AppColors.progressCompleted, // بنفش
-    ProgressState.stopped => AppColors.progressDropped, // قرمز
     ProgressState.partial => AppColors.progressPartial, // زرد
   };
 

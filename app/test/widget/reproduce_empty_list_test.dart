@@ -3,17 +3,17 @@ import 'package:cinetrack/data/repositories/supabase_social_repository.dart';
 import 'package:cinetrack/domain/entities/enums.dart';
 import 'package:cinetrack/domain/entities/media_summary.dart';
 import 'package:cinetrack/domain/repositories/auth_repository.dart';
-import 'package:cinetrack/features/auth/presentation/auth_providers.dart';
 import 'package:cinetrack/features/social/presentation/collaborative_list_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/fake_auth.dart';
+
 void main() {
   testWidgets('Reproduction: Account B sees movies and request after Account A requests access', (tester) async {
     const accountB = AppUser(
       id: 'acc_b',
-      email: 'b@example.com',
       username: 'user_b',
       firstName: 'User',
       lastName: 'B',
@@ -21,7 +21,6 @@ void main() {
 
     const accountA = AppUser(
       id: 'acc_a',
-      email: 'a@example.com',
       username: 'user_a',
       firstName: 'User',
       lastName: 'A',
@@ -76,8 +75,8 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          ...authOverrides(accountB),
           socialRepositoryProvider.overrideWithValue(repo),
-          currentUserProvider.overrideWith((ref) => Stream.value(accountB)),
         ],
         child: MaterialApp(
           home: CollaborativeListScreen(listId: list.listId),

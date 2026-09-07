@@ -22,10 +22,10 @@ class WatchlistScreen extends ConsumerWidget {
   const WatchlistScreen({super.key});
 
   static const _tabs = <(WatchlistSection, String)>[
-    (WatchlistSection.watching, AppStrings.watchlistWatching),
-    (WatchlistSection.watched, AppStrings.watchlistWatched),
     (WatchlistSection.watchLater, AppStrings.watchlistLater),
     (WatchlistSection.favourites, AppStrings.watchlistFavourites),
+    (WatchlistSection.watched, AppStrings.watchlistWatched),
+    (WatchlistSection.watching, AppStrings.watchlistWatching),
   ];
 
   @override
@@ -61,6 +61,42 @@ class WatchlistScreen extends ConsumerWidget {
   }
 }
 
+/// Which kinds of title the "watched" section shows.
+enum WatchedFilter {
+  all('همه'),
+  movies('فیلم‌ها'),
+  series('سریال‌ها');
+
+  const WatchedFilter(this.label);
+
+  final String label;
+
+  bool matches(MediaSummary item) => switch (this) {
+    WatchedFilter.all => true,
+    WatchedFilter.movies => item.type.isMovie,
+    WatchedFilter.series => item.type.isSeries,
+  };
+}
+
+/// The film/series choice, per section.
+///
+/// Keyed by section so each keeps its own: someone narrowing «موردعلاقه‌ها»
+/// to series has said nothing about how they want «مشاهده شده» shown. Held
+/// outside the tab so the choice survives switching away and back.
+///
+/// «در حال تماشا» has no entry — only series can be in progress, so a filter
+/// there would offer a choice between everything and nothing.
+final watchedFilterProvider =
+    StateProvider.family<WatchedFilter, WatchlistSection>(
+  (ref, section) => WatchedFilter.all,
+);
+
+/// Whether [section] is worth offering a film/series filter for.
+bool _isFilterable(WatchlistSection section) =>
+    section == WatchlistSection.watched ||
+    section == WatchlistSection.watchLater ||
+    section == WatchlistSection.favourites;
+
 class _Section extends ConsumerWidget {
   const _Section({required this.section});
 
@@ -69,21 +105,79 @@ class _Section extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(watchlistProvider(section));
+    final filterable = _isFilterable(section);
+    final filter = ref.watch(watchedFilterProvider(section));
+
+    Widget withFilter(Widget child) {
+      if (!filterable) return child;
+      return Column(
+        children: [
+          _WatchedFilterBar(section: section, selected: filter),
+          Expanded(child: child),
+        ],
+      );
+    }
 
     return switch (async) {
-      AsyncData(:final value) =>
-        value.isEmpty
-            ? const EmptyState(
-                message: AppStrings.emptyWatchlist,
-                icon: Icons.bookmark_border,
-              )
-            : _Grid(items: value, section: section),
+      AsyncData(:final value) => () {
+        final items = filterable
+            ? value.where(filter.matches).toList()
+            : value;
+
+        if (items.isEmpty) {
+          return withFilter(
+            EmptyState(
+              message: filterable && filter != WatchedFilter.all
+                  ? 'در این بخش ${filter.label} ندارید'
+                  : AppStrings.emptyWatchlist,
+              icon: Icons.bookmark_border,
+            ),
+          );
+        }
+
+        return withFilter(_Grid(items: items, section: section));
+      }(),
       AsyncError(:final error) => ErrorView(
         failure: error is Failure ? error : const FetchFailure(),
         onRetry: () => ref.invalidate(watchlistProvider(section)),
       ),
       _ => LoadingShimmer.listRows(),
     };
+  }
+}
+
+/// Films / series / both, for one section of the watchlist.
+class _WatchedFilterBar extends ConsumerWidget {
+  const _WatchedFilterBar({required this.section, required this.selected});
+
+  final WatchlistSection section;
+  final WatchedFilter selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.lg,
+        0,
+      ),
+      child: Row(
+        children: [
+          for (final filter in WatchedFilter.values) ...[
+            ChoiceChip(
+              label: Text(filter.label),
+              selected: filter == selected,
+              onSelected: (_) => ref
+                  .read(watchedFilterProvider(section).notifier)
+                  .state = filter,
+            ),
+            if (filter != WatchedFilter.values.last)
+              const SizedBox(width: AppSpacing.sm),
+          ],
+        ],
+      ),
+    );
   }
 }
 
