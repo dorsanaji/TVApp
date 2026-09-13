@@ -1,6 +1,6 @@
 **Movie & series management and tracking application**
 
-Course project — **Mobile Programming (40429)**, Sharif University of Technology, Department of Computer Engineering.
+
 
 
 
